@@ -21,5 +21,5 @@ File.foreach('urls.txt') do |url|
   feed.items.each do |item|
     puts "  <li><a href='#{item.link}'>#{item.title}</a></li>"
   end
+  puts '</ul>'
 end
-puts '</ul>'
