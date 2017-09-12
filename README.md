@@ -1,3 +1,3 @@
 Aggregate Local RSS feeds
 
-https:////yubanet.com/feed/
+Pulls in RSS feeds from multiple sites.
