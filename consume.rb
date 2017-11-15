@@ -3,8 +3,6 @@ require 'rss'
 require 'httparty'
 
 File.open('index.html', 'w') do |fo|
-
-
   # Read list of URLs from file
   File.foreach('urls.txt') do |url|
     # Remove extra characters and URI encode
