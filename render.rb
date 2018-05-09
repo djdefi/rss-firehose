@@ -4,7 +4,7 @@ require 'rss'
 require 'httparty'
 
 def render
-  html = File.open('index.html.erb').read
+  html = File.open('templates/index.html.erb').read
   template = ERB.new(html, nil, '-')
   template.result
   File.open('public/index.html', 'w') do |fo|

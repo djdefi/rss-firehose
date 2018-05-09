@@ -1,3 +1,11 @@
-Aggregate Local RSS feeds
+## rss-firehose
 
-Pulls in RSS feeds from multiple sites.
+Aggregate Local RSS feeds into a lightweight page similar to https://lite.cnn.io
+
+### Running:
+
+```
+ruby render.rb
+```
+
+Outputs `public/index.html`

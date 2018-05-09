@@ -1,0 +1,39 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link type="text/css" rel="stylesheet" href="main.css"/>
+  <title><%= title %></title>
+  <meta name="description" content="View the latest local news."/>
+</head>
+<body>
+<div>
+	<div style="padding:10px;">
+		<strong style="color:#c00;">Local News</strong>
+		|
+		<span><%= Time.now.strftime('%F %R %Z') -%></span>
+	</div><hr/>
+	<div class="firehose">
+		<strong>Main Stories</strong>
+<p>
+<% rss_urls.each do |url| -%>
+
+  <h3>
+    <a href='<%= url.gsub '/feed/', '' %>'><%= url.gsub '/feed/', ''  %> - <%= feed(url).items.count %> items:</a>
+  </h3>
+      <ul>
+        <% feed(url).items.each do |item| -%>
+      <li>
+          <a href='<%= item.link %>' > <%= item.title %></a>
+        </li>
+    <% end -%>
+      </ul>
+
+<% end -%>
+</p>
+</div>
+</div>
+
+</body>
+</html>
