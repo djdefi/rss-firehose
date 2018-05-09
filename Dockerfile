@@ -1,2 +1,2 @@
 FROM ruby:2.4-onbuild
-CMD ["./consume.rb"]
+CMD ["./render.rb"]
