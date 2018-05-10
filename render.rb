@@ -4,12 +4,11 @@ require 'rss'
 require 'httparty'
 
 def render
-  html = File.open('templates/index.html.erb').read do
-    template = ERB.new(html, nil, '-')
-    template.result
-    File.open('public/index.html', 'w') do |fo|
-      fo.puts template.result
-    end
+  html = File.open('templates/index.html.erb').read
+  template = ERB.new(html, nil, '-')
+  template.result
+  File.open('public/index.html', 'w') do |fo|
+    fo.puts template.result
   end
 end
 
