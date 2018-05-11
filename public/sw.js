@@ -2,10 +2,7 @@ self.addEventListener('install', function(e) {
  e.waitUntil(
    caches.open('firehose').then(function(cache) {
      return cache.addAll([
-       '/',
-       '/index.html',
-       '/main.css',
-       '/manifest.json'
+       '/main.css'
      ]);
    })
  );
