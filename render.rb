@@ -5,7 +5,11 @@ require 'httparty'
 
 
 def title
-  'News Firehose'
+  if ENV["RSS_TITLE"]
+    ENV["RSS_TITLE"]
+  else
+    'News Firehose'
+  end
 end
 
 def rss_urls
