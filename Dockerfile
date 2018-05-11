@@ -3,8 +3,8 @@ WORKDIR /usr/src/app
 
 COPY Gemfile Gemfile.lock ./
 RUN bundle install
-VOLUME /usr/src/app/public
 
 COPY . .
 
+VOLUME /usr/src/app/public
 CMD ["./render.rb"]
