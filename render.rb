@@ -13,7 +13,11 @@ def title
 end
 
 def rss_urls
-  File.readlines('urls.txt').map(&:chomp)
+  if ENV["RSS_URLS"]
+    ENV["RSS_URLS"].split(',')
+  else
+    File.readlines('urls.txt').map(&:chomp)
+  end
 end
 
 def render_html
