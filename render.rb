@@ -3,7 +3,16 @@ require 'erb'
 require 'rss'
 require 'httparty'
 
-def render
+
+def title
+  'News Firehose'
+end
+
+def rss_urls
+  File.readlines('urls.txt').map(&:chomp)
+end
+
+def render_html
   html = File.open('templates/index.html.erb').read
   template = ERB.new(html, nil, '-')
   template.result
@@ -12,8 +21,13 @@ def render
   end
 end
 
-def rss_urls
-  File.readlines('urls.txt').map(&:chomp)
+def render_manifest
+  json = File.open('templates/manifest.json.erb').read
+  template = ERB.new(json, nil, '-')
+  template.result
+  File.open('public/manifest.json', 'w') do |fo|
+    fo.puts template.result
+  end
 end
 
 # Get the feeds and parse them. We don't validate because some feeds are
@@ -23,8 +37,5 @@ def feed(url)
   RSS::Parser.parse(response.body, _do_validate = false)
 end
 
-def title
-  'News Firehose'
-end
-
-render
+render_manifest
+render_html
