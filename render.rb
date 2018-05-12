@@ -19,6 +19,14 @@ def rss_urls
   end
 end
 
+def description
+  if ENV['RSS_DESCRIPTION']
+    ENV['RSS_DESCRIPTION']
+  else
+    'View the latest news.'
+  end
+end
+
 def analytics_ua
   ENV['ANALYTICS_UA']
 end

@@ -49,4 +49,5 @@ Available environment variable options:
 "ANALYTICS_UA=UA-XXXXX-Y"
 "RSS_URLS=https://url1/feed,http://url2/rss"
 "RSS_TITLE=My News"
+"RSS_DESCRIPTION=My really awesome news aggregation page"
 ```
