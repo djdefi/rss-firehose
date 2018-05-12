@@ -1,8 +1,10 @@
 ## rss-firehose
 
-Aggregate Local RSS feeds into a lightweight page similar to https://lite.cnn.io
+Aggregate Local RSS feeds into a lightweight page.
 
-### Running:
+Example page: https://nevco.press
+
+### Rendering:
 
 To render the page:
 
@@ -10,23 +12,41 @@ To render the page:
 ruby render.rb
 ```
 
-Outputs `public/index.html`
-
-To serve it with a simple sinatra server, run:
-
-```
-ruby server.rb
-```
-
-Browse to http://localhost:4567/ to view
+Outputs to: `public/index.html`
 
 ### Docker
 
 Served up on port 8080 with nginx:
 
 ```
-docker run --rm -v rss-firehose:/usr/src/app/public -it rss-firehose
+docker build -t djdefi/rss-firehose .
+docker run --rm -v rss-firehose:/usr/src/app/public -it djdefi/rss-firehose
 docker run --name rss-nginx --rm -v rss-firehose:/usr/share/nginx/html:ro -p 8080:80 nginx:1.14.0-alpine
 ```
 
 Re-run the `rss-firehose` container to update the page.
+
+#### Environment variables
+
+Optional settings can be configured an Docker run time, or be set in your local Ruby environment:
+
+```
+
+## Docker:
+
+docker run --rm -v rss-firehose:/usr/src/app/public -e "RSS_TITLE=My News" -e "RSS_URLS=https://url1/feed,http://url2/rss" -e "ANALYTICS_UA=UA-XXXXX-Y" -it djdefi/rss-firehose
+
+## Ruby:
+
+export RSS_URLS="https://url1/feed,http://url2/rss"
+ruby render.rb
+
+```
+
+Available environment variable options:
+
+```
+"ANALYTICS_UA=UA-XXXXX-Y"
+"RSS_URLS=https://url1/feed,http://url2/rss"
+"RSS_TITLE=My News"
+```
