@@ -49,17 +49,16 @@ if('serviceWorker' in navigator) {
             console.log('Service Worker Ready'); });
 }
 
-<% if analytics_ua -%>
+</script>
+
+<% if analytics_ua %>
+<script>
   window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
   ga('create', '<%= analytics_ua %>', 'auto');
   ga('send', 'pageview');
-<% end -%>
-
 </script>
-
-<% if analytics_ua -%>
 <script async src='https://www.google-analytics.com/analytics.js'></script>
-<% end -%>
+<% end %>
 
 </body>
 </html>
