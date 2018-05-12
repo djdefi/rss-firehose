@@ -3,21 +3,24 @@ require 'erb'
 require 'rss'
 require 'httparty'
 
-
 def title
-  if ENV["RSS_TITLE"]
-    ENV["RSS_TITLE"]
+  if ENV['RSS_TITLE']
+    ENV['RSS_TITLE']
   else
     'News Firehose'
   end
 end
 
 def rss_urls
-  if ENV["RSS_URLS"]
-    ENV["RSS_URLS"].split(',')
+  if ENV['RSS_URLS']
+    ENV['RSS_URLS'].split(',')
   else
     File.readlines('urls.txt').map(&:chomp)
   end
+end
+
+def analytics_ua
+  ENV['ANALYTICS_UA']
 end
 
 def render_html
