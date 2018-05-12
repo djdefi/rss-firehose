@@ -11,7 +11,7 @@
 <body>
 <div>
 	<div style="padding:10px;">
-		<strong style="color:#c00;">Local News</strong>
+		<strong style="color:#c00;"><%= title %></strong>
 		|
 		<span><%= Time.now.strftime('%F %R %Z') -%></span>
 	</div><hr/>
@@ -48,7 +48,7 @@ if('serviceWorker' in navigator) {
 
 <% if analytics_ua -%>
 window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
-ga('create', 'UA-XXXXX-Y', 'auto');
+ga('create', '<%= analytics_ua %>', 'auto');
 ga('send', 'pageview');
 <% end -%>
 </script>
