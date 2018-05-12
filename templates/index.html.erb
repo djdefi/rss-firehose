@@ -50,10 +50,11 @@ if('serviceWorker' in navigator) {
 }
 
 <% if analytics_ua -%>
-window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
-ga('create', '<%= analytics_ua %>', 'auto');
-ga('send', 'pageview');
+  window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+  ga('create', '<%= analytics_ua %>', 'auto');
+  ga('send', 'pageview');
 <% end -%>
+
 </script>
 
 <% if analytics_ua -%>
