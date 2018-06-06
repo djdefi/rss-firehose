@@ -5,13 +5,13 @@ GEM
       multi_xml (>= 0.5.2)
     multi_xml (0.6.0)
     mustermann (1.0.2)
-    rack (2.0.4)
-    rack-protection (2.0.1)
+    rack (2.0.5)
+    rack-protection (2.0.2)
       rack
-    sinatra (2.0.1)
+    sinatra (2.0.2)
       mustermann (~> 1.0)
       rack (~> 2.0)
-      rack-protection (= 2.0.1)
+      rack-protection (= 2.0.2)
       tilt (~> 2.0)
     tilt (2.0.8)
 
@@ -20,7 +20,7 @@ PLATFORMS
 
 DEPENDENCIES
   httparty
-  sinatra
+  sinatra (~> 2.0, >= 2.0.2)
 
 BUNDLED WITH
-   1.16.0
+   1.16.1
