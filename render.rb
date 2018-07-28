@@ -52,7 +52,9 @@ end
 # Get the feeds and parse them. We don't validate because some feeds are
 # malformed slightly and break the parser.
 def feed(url)
-  response = HTTParty.get(url, timeout: 60)
+  response = HTTParty.get(url,
+                          timeout: 60,
+                          headers: { 'User-Agent' => 'rss-firehose' })
   RSS::Parser.parse(response.body, _do_validate = false)
 end
 
