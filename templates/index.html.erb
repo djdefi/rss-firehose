@@ -39,18 +39,6 @@
 </div>
 </div>
 
-<script>
-if('serviceWorker' in navigator) {
-  navigator.serviceWorker
-           .register('/sw.js')
-           .then(function() { console.log("Service Worker Registered"); });
-
-  navigator.serviceWorker.ready.then(function(registration) {
-            console.log('Service Worker Ready'); });
-}
-
-</script>
-
 <% if analytics_ua %>
 <script>
   window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
