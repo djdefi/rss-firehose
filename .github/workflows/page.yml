@@ -26,6 +26,7 @@ jobs:
     # Renders the page
     - name: Render
       run: |
+        gem install bundler
         bundle install
         ruby render.rb
 
