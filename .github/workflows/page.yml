@@ -1,6 +1,6 @@
 # This is a basic workflow to help you get started with Actions
 
-name: Auto deploy
+name: Auto pages deploy
 
 # Controls when the action will run. Triggers the workflow on push or pull request 
 # events but only for the master branch
@@ -34,6 +34,9 @@ jobs:
         gem install bundler
         bundle install
         ruby render.rb
+
+    - name: Git AV Scan
+      uses: djdefi/gitavscan@master
 
     - uses: actions/upload-artifact@v1
       with:
