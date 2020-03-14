@@ -2,7 +2,7 @@
 
 Aggregate Local RSS feeds into a lightweight page.
 
-Example page: https://nevco.press
+Example page: https://djdefi.github.io/rss-firehose/
 
 ### Rendering:
 
