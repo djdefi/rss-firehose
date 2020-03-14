@@ -27,9 +27,9 @@ jobs:
       run: ruby render.rb
 
     - uses: actions/upload-artifact@v1
-    with:
-      name: index
-      path: public/index.html
+      with:
+        name: index
+        path: public/index.html
 
     - name: GitHub Pages
       if: success()
