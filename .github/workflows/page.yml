@@ -33,9 +33,9 @@ jobs:
     - name: Install gems & render page
       env: 
         #ANALYTICS_UA: ${{ secrets.ANALYTICS_UA }}
-        RSS_TITLE: ${{ secrets.RSS_TITLE }}
-        RSS_DESCRIPTION: ${{ secrets.RSS_DESCRIPTION }} 
-        RSS_URLS: ${{ secrets.RSS_URLS }}
+        #RSS_TITLE: ${{ secrets.RSS_TITLE }}
+        #RSS_DESCRIPTION: ${{ secrets.RSS_DESCRIPTION }} 
+        #RSS_URLS: ${{ secrets.RSS_URLS }}
       run: |
         gem install bundler
         bundle install --without=standalone,development
