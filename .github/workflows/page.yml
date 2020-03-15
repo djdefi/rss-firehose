@@ -23,24 +23,35 @@ jobs:
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
     - uses: actions/checkout@v2
 
-    # Installs gem deps
-    # Renders the page
     - name: Setup Ruby
       uses: actions/setup-ruby@v1
       with:
         ruby-version: '2.6' # Version range or exact version of a Ruby version to use, using semvers version range syntax.
-    - run: |
+    
+    # Installs gem deps
+    # Renders the page
+    - name: Install gems & render page
+      run: |
         gem install bundler
         bundle install
         ruby render.rb
 
     - name: Git AV Scan
+      if: success()
       uses: djdefi/gitavscan@master
 
-    - uses: actions/upload-artifact@v1
+    - name: Upload build artifact
+      if: success()
+      uses: actions/upload-artifact@v1
       with:
         name: index
         path: public/index.html
+
+    - name: Check Rendered HTML
+      if: success()
+      uses: chabad360/htmlproofer@master
+      with:
+        directory: "./public"
 
     - name: GitHub Pages
       if: success()
