@@ -4,11 +4,7 @@ require 'rss'
 require 'httparty'
 
 def title
-  if ENV['RSS_TITLE']
-    ENV['RSS_TITLE']
-  else
-    'News Firehose'
-  end
+  ENV['RSS_TITLE'] || 'News Firehose'
 end
 
 def rss_urls
@@ -20,11 +16,7 @@ def rss_urls
 end
 
 def description
-  if ENV['RSS_DESCRIPTION']
-    ENV['RSS_DESCRIPTION']
-  else
-    'View the latest news.'
-  end
+  ENV['RSS_DESCRIPTION'] || 'View the latest news.'
 end
 
 def analytics_ua
