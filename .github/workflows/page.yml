@@ -33,7 +33,7 @@ jobs:
     - name: Install gems & render page
       run: |
         gem install bundler
-        bundle install
+        bundle install --without=standalone
         ruby render.rb
 
     - name: Git AV Scan
