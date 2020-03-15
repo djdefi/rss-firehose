@@ -23,7 +23,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v2
       
-    - name: Rubocop checks
+    - name: Rubocop Linter Action
+      uses: andrewmcodes/rubocop-linter-action@v3.1.0
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      uses: gimenete/rubocop-action@1.0
+        GITHUB_TOKEN: ${{ secrets.GITHUB_PAT }}
