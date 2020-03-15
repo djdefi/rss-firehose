@@ -25,5 +25,5 @@ jobs:
       
     - name: Rubocop checks
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_PAT }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       uses: gimenete/rubocop-action@1.0
