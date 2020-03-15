@@ -21,6 +21,6 @@ jobs:
     steps:
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
     - name: Rubocop checks
-      uses: gimenete/rubocop-action@1.0
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_PAT }}
+      uses: gimenete/rubocop-action@1.0
