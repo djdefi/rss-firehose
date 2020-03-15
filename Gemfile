@@ -1,4 +1,7 @@
 source 'https://rubygems.org'
 
 gem 'httparty'
-gem 'sinatra', '~> 2.0'
+
+group :standalone do
+    gem 'sinatra', '~> 2.0'
+end
