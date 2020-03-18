@@ -1,2 +1,4 @@
 https://yubanet.com/feed/
 http://www.theunion.com/feed/
+https://www.kvmr.org/feed/
+https://www.mynevadacounty.com/RSSFeed.aspx?ModID=1&CID=All-newsflash.xml
