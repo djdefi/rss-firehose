@@ -6,7 +6,7 @@ name: Auto pages deploy
 # events but only for the master branch
 on:
   push:
-    branches: [ master ]
+    branches: [ maain ]
   schedule:
     # * is a special character in YAML so you have to quote this string
     - cron:  '5 */2 * * *'
