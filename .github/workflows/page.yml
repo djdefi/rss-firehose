@@ -60,8 +60,8 @@ jobs:
 
     - name: GitHub Pages
       if: success()
-      uses: crazy-max/ghaction-github-pages@v1.3.0
+      uses: crazy-max/ghaction-github-pages@v2
       with:
         build_dir: public
       env:
-        GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
+        GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
