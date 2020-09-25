@@ -64,4 +64,4 @@ jobs:
       with:
         build_dir: public
       env:
-        GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
