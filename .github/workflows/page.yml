@@ -47,7 +47,7 @@ jobs:
 
     - name: Upload build artifact
       if: success()
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v2
       with:
         name: index
         path: public/index.html
