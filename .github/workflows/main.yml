@@ -13,4 +13,4 @@ jobs:
     - name: Build the Docker image
       run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
     - name: Hadolint Action
-      uses: brpaz/hadolint-action@v1.0.2
+      uses: brpaz/hadolint-action@v1.1.0
