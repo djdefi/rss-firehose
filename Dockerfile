@@ -1,10 +1,7 @@
-FROM ruby:2.6.0-alpine3.7
-WORKDIR /usr/src/app
-
-COPY Gemfile Gemfile.lock ./
-RUN bundle install
-
-COPY . .
-
+FROM ruby:3-alpine
 VOLUME /usr/src/app/public
 CMD ["./render.rb"]
+WORKDIR /usr/src/app
+
+COPY . .
+RUN bundle install --jobs 4

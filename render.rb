@@ -1,4 +1,6 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
+
 require 'erb'
 require 'rss'
 require 'httparty'
@@ -25,7 +27,7 @@ end
 
 def render_html
   html = File.open('templates/index.html.erb').read
-  template = ERB.new(html, nil, '-')
+  template = ERB.new(html, trim_mode: '-')
   template.result
   File.open('public/index.html', 'w') do |fo|
     fo.puts template.result
@@ -34,7 +36,7 @@ end
 
 def render_manifest
   json = File.open('templates/manifest.json.erb').read
-  template = ERB.new(json, nil, '-')
+  template = ERB.new(json, trim_mode: '-')
   template.result
   File.open('public/manifest.json', 'w') do |fo|
     fo.puts template.result
