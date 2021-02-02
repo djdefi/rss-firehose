@@ -1,8 +1,8 @@
-FROM ruby:2.6.0-alpine3.7
+FROM ruby:3-alpine
 WORKDIR /usr/src/app
 
 COPY Gemfile Gemfile.lock ./
-RUN bundle install
+RUN bundle install --jobs 4
 
 COPY . .
 
