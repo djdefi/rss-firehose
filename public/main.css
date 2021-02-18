@@ -44,3 +44,8 @@ li {
 .firehose>p:last-of-type {
     margin-bottom: 0
 }
+
+html[data-theme='dark'] {
+    background: #000;
+    filter: invert(1) hue-rotate(180deg)
+}
