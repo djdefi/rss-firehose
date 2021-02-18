@@ -1,3 +1,8 @@
+@media (prefers-color-scheme: dark) {
+    background: #000;
+    filter: invert(1) hue-rotate(180deg)
+}
+
 body,
 html {
     height: 100%;
@@ -43,9 +48,4 @@ li {
 
 .firehose>p:last-of-type {
     margin-bottom: 0
-}
-
-@media (prefers-color-scheme: dark) {
-    background: #000;
-    filter: invert(1) hue-rotate(180deg)
 }
