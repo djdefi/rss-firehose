@@ -1,6 +1,8 @@
 @media (prefers-color-scheme: dark) {
-    background: #000;
-    filter: invert(1) hue-rotate(180deg)
+    body {
+        background-color: #000;
+        filter: invert(1) hue-rotate(180deg)
+    }
 }
 
 body,
