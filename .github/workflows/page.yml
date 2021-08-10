@@ -58,6 +58,7 @@ jobs:
       uses: chabad360/htmlproofer@master
       with:
         directory: "./public"
+        arguments: "--disable-external"
 
     - name: GitHub Pages
       if: success()
