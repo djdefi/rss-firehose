@@ -10,7 +10,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3 # ruby version of a project
+          ruby-version: 2.7 # ruby version of a project
           bundler-cache: true
       - uses: djdefi/bundle-update-action@master
         env:
