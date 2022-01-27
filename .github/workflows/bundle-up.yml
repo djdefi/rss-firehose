@@ -20,4 +20,3 @@ jobs:
           REVIEWERS: djdefi
           ASSIGNEES: djdefi
           LABELS: bundle-update
-          GEMS: "*" # use "*" to update all gems or delete the variable
