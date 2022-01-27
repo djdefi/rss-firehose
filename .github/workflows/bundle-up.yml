@@ -12,7 +12,7 @@ jobs:
         with:
           ruby-version: 3 # ruby version of a project
           bundler-cache: true
-      - uses: mmnfst/bundle-update-action@master
+      - uses: djdefi/bundle-update-action@master
         env:
           GITHUB_TOKEN: ${{ secrets.PAT }} # token of your account
           BRANCH: "maint/bundle-update"
