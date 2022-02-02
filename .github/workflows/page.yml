@@ -38,9 +38,6 @@ jobs:
         #RSS_DESCRIPTION: ${{ secrets.RSS_DESCRIPTION }} 
         #RSS_URLS: ${{ secrets.RSS_URLS }}
       run: |
-        gem install bundler
-        bundle config set --local without 'standalone,development'
-        bundle install
         ruby render.rb
 
     - name: Git AV Scan
