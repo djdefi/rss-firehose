@@ -28,7 +28,7 @@ jobs:
       with:
         ruby-version: '3' # Version range or exact version of a Ruby version to use, using semvers version range syntax.
         bundler-cache: true
-    - run: ruby render.rb
+    - run: bundle exec render.rb
 
     - name: Git AV Scan
       if: success()
