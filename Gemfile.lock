@@ -13,6 +13,9 @@ GEM
     rack (2.2.4)
     rack-protection (2.2.2)
       rack
+    rexml (3.2.5)
+    rss (0.2.9)
+      rexml
     ruby2_keywords (0.0.5)
     sinatra (2.2.2)
       mustermann (~> 2.0)
@@ -26,7 +29,8 @@ PLATFORMS
 
 DEPENDENCIES
   httparty
+  rss
   sinatra (~> 2.2)
 
 BUNDLED WITH
-   2.3.5
+   2.3.18
