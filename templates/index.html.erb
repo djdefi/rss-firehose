@@ -24,7 +24,7 @@
 <% rss_urls.each do |url| -%>
 
   <h3>
-    <a href='<%= url.gsub '/feed/|/RSSFeed.aspx?ModID=1&CID=All-newsflash.xml', '' %>'><%= url.gsub '/feed/|/RSSFeed.aspx?ModID=1&CID=All-newsflash.xml', ''  %> - <%= feed(url).items.count %> items:</a>
+    <a href='<%= url.gsub '/feed/|RSSFeed', '' %>'><%= url.gsub '/feed/|RSSFeed', ''  %> - <%= feed(url).items.count %> items:</a>
   </h3>
       <ul>
         <% feed(url).items.each do |item| -%>
