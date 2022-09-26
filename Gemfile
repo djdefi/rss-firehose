@@ -6,5 +6,5 @@ gem 'httparty'
 gem 'rss'
 
 group :standalone do
-  gem 'sinatra', '~> 2.2'
+  gem 'sinatra', '~> 3.0'
 end
