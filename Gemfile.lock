@@ -11,16 +11,16 @@ GEM
     mustermann (3.0.0)
       ruby2_keywords (~> 0.0.1)
     rack (2.2.4)
-    rack-protection (3.0.1)
+    rack-protection (3.0.2)
       rack
     rexml (3.2.5)
     rss (0.2.9)
       rexml
     ruby2_keywords (0.0.5)
-    sinatra (3.0.1)
+    sinatra (3.0.2)
       mustermann (~> 3.0)
       rack (~> 2.2, >= 2.2.4)
-      rack-protection (= 3.0.1)
+      rack-protection (= 3.0.2)
       tilt (~> 2.0)
     tilt (2.0.11)
 
