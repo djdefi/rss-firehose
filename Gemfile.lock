@@ -8,7 +8,7 @@ GEM
     multi_xml (0.6.0)
     mustermann (3.0.0)
       ruby2_keywords (~> 0.0.1)
-    rack (2.2.4)
+    rack (2.2.6.2)
     rack-protection (3.0.5)
       rack
     rexml (3.2.5)
