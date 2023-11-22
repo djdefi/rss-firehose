@@ -26,30 +26,39 @@ def analytics_ua
 end
 
 def render_html
-  html = File.open('templates/index.html.erb').read
-  template = ERB.new(html, trim_mode: '-')
-  template.result
-  File.open('public/index.html', 'w') do |fo|
-    fo.puts template.result
+  begin
+    html = File.open('templates/index.html.erb').read
+    template = ERB.new(html, trim_mode: '-')
+    File.open('public/index.html', 'w') do |f|
+      f.puts template.result
+    end
+  rescue => e
+    puts "Warning: Failed to render HTML. Error: #{e.message}"
   end
 end
 
 def render_manifest
-  json = File.open('templates/manifest.json.erb').read
-  template = ERB.new(json, trim_mode: '-')
-  template.result
-  File.open('public/manifest.json', 'w') do |fo|
-    fo.puts template.result
+  begin
+    json = File.open('templates/manifest.json.erb').read
+    template = ERB.new(json, trim_mode: '-')
+    File.open('public/manifest.json', 'w') do |f|
+      f.puts template.result
+    end
+  rescue => e
+    puts "Warning: Failed to manifest JSON. Error: #{e.message}"
   end
 end
 
 # Get the feeds and parse them. We don't validate because some feeds are
 # malformed slightly and break the parser.
 def feed(url)
-  response = HTTParty.get(url,
-                          timeout: 60,
-                          headers: { 'User-Agent' => 'rss-firehose' })
-  RSS::Parser.parse(response.body, _do_validate = false)
+  begin
+    response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose' })
+    return RSS::Parser.parse(response.body, do_validate = false)
+  rescue => e
+    puts "Warning: Could not fetch or parse the feed from '#{url}'. Error: #{e.message}"
+    return nil
+  end
 end
 
 render_manifest
