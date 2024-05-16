@@ -1,9 +1,7 @@
 FROM ruby:3-alpine
 
 # Install python for simple HTTP server
-RUN apk add --no-cache python3 py3-pip && \
-    pip3 install --upgrade pip && \
-    pip3 install http.server
+RUN apk add --no-cache python3 py3-pip py3-http.server
 
 VOLUME /usr/src/app/public
 WORKDIR /usr/src/app
