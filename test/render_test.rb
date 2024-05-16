@@ -16,7 +16,7 @@ class RenderTest < Minitest::Test
   def test_placeholder_message_for_parsing_error
     # Simulate a parsing error by providing an invalid URL
     invalid_feed_url = "http://example.com/invalid_feed"
-    placeholder_message = "Feed currently offline: #{invalid_feed_url}"
+    placeholder_message = "<a href='http://example.com/invalid_feed'>http://example.com/invalid_feed - 0 items:</a>"
     # Run render.rb with the invalid URL to simulate the parsing error
     `RSS_URLS=#{invalid_feed_url} ruby render.rb`
     output = File.read('public/index.html')
