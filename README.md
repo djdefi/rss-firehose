@@ -14,6 +14,19 @@ ruby render.rb
 
 Outputs to: `public/index.html`
 
+### Writing and Running Rendering Tests
+
+To ensure the integrity of rendering changes, it's crucial to write and run rendering tests. Here's how:
+
+1. Write new tests in `test/render_test.rb` when modifying rendering logic.
+2. To run the tests, execute the following command:
+
+```
+ruby test/render_test.rb
+```
+
+This will verify that the output of `render.rb` matches the expected HTML structure or content.
+
 ### Docker
 
 Served up on port 8080 with nginx:
