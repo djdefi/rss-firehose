@@ -54,8 +54,9 @@ end
 def feed(url)
   begin
     response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
-    rss_content = RSS::Parser.parse(response.body, false)
-    raise 'Feed content is empty' if rss_content.nil? || rss_content.items.empty?
+    rss_content = RSS::Parser.parse(response.body, false) if response.code == 200
+    # If the feed is empty or nil, set the rss_content a single item stating the feed is offline
+    rss_content = RSS::Rss.new('2.0') if rss_content.nil? || rss_content.items.empty?
 
     rss_content
   rescue HTTParty::Error, RSS::Error => e
