@@ -60,7 +60,7 @@ def feed(url)
     rss_content
   rescue HTTParty::Error, RSS::Error => e
     puts "Error fetching or parsing feed from '#{url}': #{e.class} - #{e.message}"
-    nil
+    return "Feed currently offline: #{url}"
   rescue => e
     puts "General error with feed '#{url}': #{e.message}"
     nil
