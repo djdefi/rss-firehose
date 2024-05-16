@@ -53,7 +53,7 @@ end
 # malformed slightly and break the parser.
 def feed(url)
   begin
-    response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose' })
+    response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
     rss_content = RSS::Parser.parse(response.body, false)
     raise 'Feed content is empty' if rss_content.nil? || rss_content.items.empty?
 

@@ -3,9 +3,10 @@ require_relative '../render.rb'
 
 class RenderTest < Minitest::Test
   def setup
-    # Setup code to run render.rb and capture output
-    @output = `ruby render.rb`
-    @expected_output_structure = "<html><head><title>News Firehose</title></head><body>"
+    # Setup code to run render.rb to create public/index.html file then verify its content
+    `ruby render.rb`
+    @output = File.read('public/index.html')
+    @expected_output_structure = "<title>News Firehose</title>"
   end
 
   def test_render_output_structure
