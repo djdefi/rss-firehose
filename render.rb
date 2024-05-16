@@ -30,7 +30,7 @@ def render_html
     html = File.open('templates/index.html.erb').read
     template = ERB.new(html, trim_mode: '-')
     File.open('public/index.html', 'w') do |f|
-      f.puts template.result
+      f.puts template.result(binding)
     end
   rescue => e
     puts "Warning: Failed to render HTML. Error: #{e.message}"
@@ -42,7 +42,7 @@ def render_manifest
     json = File.open('templates/manifest.json.erb').read
     template = ERB.new(json, trim_mode: '-')
     File.open('public/manifest.json', 'w') do |f|
-      f.puts template.result
+      f.puts template.result(binding)
     end
   rescue => e
     puts "Warning: Failed to manifest JSON. Error: #{e.message}"
@@ -54,12 +54,22 @@ end
 def feed(url)
   begin
     response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose' })
-    return RSS::Parser.parse(response.body, do_validate = false)
+    rss_content = RSS::Parser.parse(response.body, false)
+    raise 'Feed content is empty' if rss_content.nil? || rss_content.items.empty?
+
+    rss_content
+  rescue HTTParty::Error, RSS::Error => e
+    puts "Error fetching or parsing feed from '#{url}': #{e.class} - #{e.message}"
+    nil
   rescue => e
-    puts "Warning: Could not fetch or parse the feed from '#{url}'. Error: #{e.message}"
-    return nil
+    puts "General error with feed '#{url}': #{e.message}"
+    nil
   end
 end
 
-render_manifest
-render_html
+begin
+  render_manifest
+  render_html
+rescue => e
+  puts "Error during rendering process: #{e.message}"
+end
