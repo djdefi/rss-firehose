@@ -29,12 +29,11 @@ This will verify that the output of `render.rb` matches the expected HTML struct
 
 ### Docker
 
-Served up on port 8080 with nginx:
+To run the application using Docker, build the Docker image and then run the container:
 
 ```
 docker build -t djdefi/rss-firehose .
 docker run --rm -v rss-firehose:/usr/src/app/public -it djdefi/rss-firehose
-docker run --name rss-nginx --rm -v rss-firehose:/usr/share/nginx/html:ro -p 8080:80 nginx:1.14.0-alpine
 ```
 
 Re-run the `rss-firehose` container to update the page.
