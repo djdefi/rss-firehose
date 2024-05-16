@@ -23,4 +23,4 @@ jobs:
       run: bundle install --with development
 
     - name: Run render_test.rb
-      run: ruby test/render_test.rb
+      run: bundle exec ruby test/render_test.rb
