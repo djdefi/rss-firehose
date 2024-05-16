@@ -22,5 +22,5 @@ jobs:
     - name: Install development dependencies
       run: bundle install --with development
 
-    - name: Run render.rb
-      run: test render_test.rb
+    - name: Run render_test.rb
+      run: ruby test/render_test.rb
