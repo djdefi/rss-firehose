@@ -33,7 +33,7 @@ jobs:
 
     - name: Git AV Scan
       if: success()
-      uses: djdefi/gitavscan@main
+      uses: djdefi/gitavscan@20
 
     - name: Upload build artifact
       if: success()
