@@ -30,6 +30,8 @@ jobs:
         bundler-cache: true
         
     - run: bundle exec ruby render.rb
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Git AV Scan
       if: success()
