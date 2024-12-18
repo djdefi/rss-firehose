@@ -57,7 +57,7 @@ def feed(url)
     response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
     rss_content = RSS::Parser.parse(response.body, false) if response.code == 200
     # If the feed is empty or nil, retry once
-    if rss_content.nil? || rss_content.items.empty?
+    if (rss_content.nil? || rss_content.items.empty?)
       puts "Feed from '#{url}' returned no items, retrying once..."
       response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
       rss_content = RSS::Parser.parse(response.body, false) if response.code == 200
@@ -90,8 +90,9 @@ rescue JSON::ParserError => e
   nil
 end
 
+# Optimized version of convert_markdown_links_to_html
 def convert_markdown_links_to_html(text)
-  text.gsub(/\[([^\]]+)\]\(([^)]+)\)/, '<a href="\2">\1</a>')
+  text.gsub(/\[([^\]]+?)\]\(([^)]+?)\)/, '<a href="\2">\1</a>')
 end
 
 def summarize_news(feed)
