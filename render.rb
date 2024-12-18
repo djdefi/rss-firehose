@@ -116,7 +116,7 @@ def summarize_news(feed)
           },
           {
             "role": "user",
-            "content": news_content[0..3500] # Adjust to fit within token limits
+            "content": news_content[0..4096] # Adjust to fit within token limits
           }
         ],
         "model": "gpt-4o",
