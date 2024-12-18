@@ -95,7 +95,12 @@ def summarize_news(feeds)
         "top_p": 1
       }.to_json
     )
-    summary = JSON.parse(response.body)["choices"].first["message"]["content"]
+    parsed_response = JSON.parse(response.body)
+    if parsed_response["choices"] && !parsed_response["choices"].empty?
+      summary = parsed_response["choices"].first["message"]["content"]
+    else
+      summary = "No summary available."
+    end
     summary
   rescue => e
     puts "Error summarizing news: #{e.message}"
