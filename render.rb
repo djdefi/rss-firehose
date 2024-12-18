@@ -182,6 +182,7 @@ cached_summary = load_cached_summary
 
 if cached_summary
   overall_summary = cached_summary
+  feed_summaries = feeds.transform_values { |feed| "Cached summary used." }
   puts "Using cached summary."
 else
   feed_summaries = feeds.transform_values { |feed| summarize_news(feed) }
