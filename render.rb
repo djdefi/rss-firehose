@@ -96,6 +96,10 @@ def summarize_news(feeds)
       }.to_json
     )
     parsed_response = JSON.parse(response.body)
+    
+    # Log the entire response for debugging
+    puts "API Response: #{response.body}"
+    
     if parsed_response["choices"] && !parsed_response["choices"].empty?
       summary = parsed_response["choices"].first["message"]["content"]
     else
