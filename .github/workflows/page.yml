@@ -3,14 +3,13 @@
 name: Auto pages deploy
 
 # Controls when the action will run. Triggers the workflow on push 
-# events but only for the master branch
+# events but only for the main branch and on a schedule
 on:
-  workflow_dispatch:
-  push:
+  workflow_dispatch:  # Allows manual triggering of the workflow
+  push:  # Triggers the workflow on push events to the main branch
     branches: [ main ]
-  schedule:
-    # * is a special character in YAML so you have to quote this string
-    - cron:  '3 */2 * * *'
+  schedule:  # Triggers the workflow on a schedule (twice a day)
+    - cron:  '0 3,15 * * *'
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
@@ -23,40 +22,46 @@ jobs:
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
     - uses: actions/checkout@v4
 
+    # Caches the AI summary
     - name: Cache AI summary
       id: cache-ai-summary
       uses: actions/cache@v4
       with:
         path: cache
-        key: ai-summary-${{ github.run_id }}-${{ github.run_number }}
+        key: ai-summary
         restore-keys: |
-          ai-summary-
+          ai-summary
 
+    # Sets up Ruby environment
     - name: Setup Ruby
       uses: ruby/setup-ruby@v1.190.0
       with:
         ruby-version: '3.1.1' # Version range or exact version of a Ruby version to use, using semvers version range syntax.
         bundler-cache: true
         
+    # Runs the Ruby script to render the page
     - run: bundle exec ruby render.rb
       env:
         GITHUB_TOKEN: ${{ secrets.API_TOKEN }}
 
+    # Prunes old summaries from the cache
     - name: Prune old summaries
       run: |
         find cache -type f -name '*.json' -mtime +1 -delete
 
+    # Uploads the AI summary to the cache
+    - name: Upload AI summary to cache
+      uses: actions/cache@v4
+      with:
+        path: cache
+        key: ai-summary
+
+    # Runs a Git AV scan
     - name: Git AV Scan
       if: success()
       uses: djdefi/gitavscan@20
 
-    - name: Upload build artifact
-      if: success()
-      uses: actions/upload-artifact@v4
-      with:
-        name: index
-        path: public/index.html
-
+    # Checks the rendered HTML for issues
     - name: Check Rendered HTML
       if: success()
       uses: chabad360/htmlproofer@master
@@ -65,6 +70,7 @@ jobs:
         directory: "./public"
         arguments: "--disable-external"
 
+    # Deploys the site to GitHub Pages
     - name: GitHub Pages
       if: success()
       uses: crazy-max/ghaction-github-pages@v4
