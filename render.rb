@@ -4,6 +4,7 @@
 require 'erb'
 require 'rss'
 require 'httparty'
+require 'json'
 
 def title
   ENV['RSS_TITLE'] || 'News Firehose'
@@ -25,7 +26,7 @@ def analytics_ua
   ENV['ANALYTICS_UA']
 end
 
-def render_html
+def render_html(news_summary)
   begin
     html = File.open('templates/index.html.erb').read
     template = ERB.new(html, trim_mode: '-')
@@ -68,9 +69,52 @@ def feed(url)
   end
 end
 
+def summarize_news(feeds)
+  begin
+    news_content = feeds.map { |feed| feed.items.map(&:title).join('. ') }.join('. ')
+    response = HTTParty.post(
+      "https://models.inference.ai.azure.com/chat/completions",
+      headers: {
+        "Content-Type" => "application/json",
+        "Authorization" => "Bearer #{ENV['GITHUB_TOKEN']}"
+      },
+      body: {
+        "messages": [
+          {
+            "role": "system",
+            "content": "Provide a concise summary of a news brief, focusing on the most important details and key context."
+          },
+          {
+            "role": "user",
+            "content": news_content
+          }
+        ],
+        "model": "gpt-4o",
+        "temperature": 1,
+        "max_tokens": 4096,
+        "top_p": 1
+      }.to_json
+    )
+    parsed_response = JSON.parse(response.body)
+    if parsed_response["choices"] && !parsed_response["choices"].empty?
+      summary = parsed_response["choices"].first["message"]["content"]
+    else
+      summary = "No summary available."
+    end
+    summary
+  rescue => e
+    puts "Error summarizing news: #{e.message}"
+    nil
+  end
+end
+
+feeds = rss_urls.map { |url| feed(url) }.compact
+news_summary = summarize_news(feeds)
+puts "News Summary: #{news_summary}"
+
 begin
   render_manifest
-  render_html
+  render_html(news_summary)
 rescue => e
   puts "Error during rendering process: #{e.message}"
 end
