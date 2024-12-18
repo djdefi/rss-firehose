@@ -31,7 +31,7 @@ jobs:
         
     - run: bundle exec ruby render.rb
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.API_TOKEN }}
 
     - name: Git AV Scan
       if: success()
