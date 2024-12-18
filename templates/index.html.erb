@@ -20,13 +20,13 @@
   </div>
   <hr/>
   <% if news_summary && !news_summary.empty? %>
-  <div class="news-summary">
+  <div class="news-summary" style="padding:10px;">
     <strong>News Summary</strong>
     <p><%= news_summary %></p>
   </div>
   <hr/>
   <% end %>
-  <div class="firehose">
+  <div class="firehose" style="padding:10px;">
     <strong>Stories</strong>
     <p>
       <% rss_urls.each do |url| -%>
