@@ -12,43 +12,42 @@
   <meta name="description" content="<%= description %>"/>
 </head>
 <body>
-<div>
-  <div style="padding:10px;">
-    <strong style="color:#c00;"><%= title %></strong>
-    |
-    <span><%= Time.now.strftime('%F %R %Z') -%></span>
-  </div>
+<div role="main">
+  <header style="padding:10px;">
+    <h1 style="color:#c00;" aria-label="Page Title"><%= title %></h1>
+    <p aria-label="Current Date and Time"><%= Time.now.strftime('%F %R %Z') -%></p>
+  </header>
   <hr/>
   <% if overall_summary && !overall_summary.empty? %>
-  <div class="overall-summary" style="padding:10px;">
-    <strong>Overall Summary</strong>
+  <section class="overall-summary" style="padding:10px;" aria-labelledby="overall-summary-title">
+    <h2 id="overall-summary-title">Overall Summary</h2>
     <p><%= overall_summary %></p>
-  </div>
+  </section>
   <hr/>
   <% end %>
-  <div class="firehose" style="padding:10px;">
-    <strong>Stories</strong>
-    <p>
+  <section class="firehose" style="padding:10px;" aria-labelledby="stories-title">
+    <h2 id="stories-title">Stories</h2>
+    <div>
       <% rss_urls.each do |url| -%>
         <h3>
-          <a href='<%= url.gsub '/feed/', '' %>'><%= url.gsub '/feed/', '' %> - <%= feed(url).items.count %> items:</a>
+          <a href='<%= url.gsub '/feed/', '' %>' aria-label="Feed URL"><%= url.gsub '/feed/', '' %> - <%= feed(url).items.count %> items:</a>
         </h3>
         <% if feed_summaries[url] && !feed_summaries[url].empty? %>
-        <div class="feed-summary" style="padding:10px;">
-          <strong>Feed Summary</strong>
+        <div class="feed-summary" style="padding:10px;" aria-labelledby="feed-summary-title-<%= url %>">
+          <h4 id="feed-summary-title-<%= url %>">Feed Summary</h4>
           <p><%= feed_summaries[url] %></p>
         </div>
         <% end %>
         <ul>
           <% feed(url).items.each do |item| -%>
             <li>
-              <a href='<%= item.link %>'><%= item.title %></a>
+              <a href='<%= item.link %>' aria-label="Feed Item"><%= item.title %></a>
             </li>
           <% end -%>
         </ul>
       <% end -%>
-    </p>
-  </div>
+    </div>
+  </section>
 </div>
 
 <% if analytics_ua %>

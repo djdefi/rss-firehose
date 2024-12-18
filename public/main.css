@@ -1,7 +1,26 @@
 @media (prefers-color-scheme: dark) {
     body {
-        background-color: #000;
-        filter: invert(1) hue-rotate(180deg)
+        background-color: #121212; /* Dark grey background */
+        color: #e0e0e0; /* Light grey text for better contrast */
+        filter: none; /* Remove invert and hue-rotate filters */
+        line-height: 1.6; /* Increase line height for better readability */
+    }
+
+    hr {
+        background-color: #444; /* Darker grey for horizontal rule */
+    }
+
+    li {
+        color: #e0e0e0; /* Light grey text for list items */
+    }
+
+    a {
+        color: #1e90ff; /* Light blue for links in dark mode */
+    }
+
+    a:focus {
+        outline: 2px dashed #1e90ff; /* Focus style for links in dark mode */
+        outline-offset: 2px;
     }
 }
 
@@ -15,6 +34,8 @@ html {
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    color: #000; /* Ensure text is black in light mode */
+    line-height: 1.6; /* Increase line height for better readability */
 }
 
 *,
@@ -25,18 +46,29 @@ body {
 
 hr {
     height: 1px;
-    background-color: #efefef;
+    background-color: #ccc; /* Lighter grey for horizontal rule in light mode */
     border: 0;
     margin: 0;
     padding: 0
 }
 
 li {
-    padding: 5px
+    padding: 5px;
+    color: #000; /* Ensure text is black in light mode */
+}
+
+a {
+    color: #007acc; /* Blue for links in light mode */
+}
+
+a:focus {
+    outline: 2px dashed #007acc; /* Focus style for links in light mode */
+    outline-offset: 2px;
 }
 
 .firehose {
-    padding: 20px
+    padding: 20px;
+    margin-bottom: 20px; /* Add margin-bottom for better spacing */
 }
 
 .firehose>ul {

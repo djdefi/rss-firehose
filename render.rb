@@ -111,7 +111,7 @@ def summarize_news(feed)
         "messages": [
           {
             "role": "system",
-            "content": "Provide a concise summary in the style of a news brief, focusing on the most important details and key context for the reader. Include inline links to the relevant articles within the summary"
+            "content": "Provide a dense and concise summary in the style of a news brief, focusing on the most important details and key context for the reader. Do not add a title to the summary. Include inline links to the relevant articles within the summary. Focus on local news, emergencies, notable events and dates. Follow the AP Stylebook guidelines for news writing."
           },
           {
             "role": "user",
