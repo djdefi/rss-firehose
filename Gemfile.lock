@@ -12,7 +12,6 @@ GEM
     rexml (3.3.9)
     rss (0.3.1)
       rexml
-    strscan (3.1.2)
 
 PLATFORMS
   ruby
@@ -21,7 +20,6 @@ DEPENDENCIES
   httparty
   minitest
   rss
-  strscan (~> 3.1.0)
 
 BUNDLED WITH
    2.3.18
