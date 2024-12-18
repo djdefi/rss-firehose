@@ -56,8 +56,22 @@ def feed(url)
   begin
     response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
     rss_content = RSS::Parser.parse(response.body, false) if response.code == 200
-    # If the feed is empty or nil, set the rss_content a single item stating the feed is offline
-    rss_content = RSS::Rss.new('2.0') if rss_content.nil? || rss_content.items.empty?
+    # If the feed is empty or nil, retry once
+    if rss_content.nil? || rss_content.items.empty?
+      puts "Feed from '#{url}' returned no items, retrying once..."
+      response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
+      rss_content = RSS::Parser.parse(response.body, false) if response.code == 200
+    end
+    # If still empty or nil, set the rss_content to a single item stating the feed is offline
+    if rss_content.nil? || rss_content.items.empty?
+      puts "Feed from '#{url}' failed after retry. Response Code: #{response.code}"
+      puts "Response Body: #{response.body[0..500]}" # Log first 500 characters of the response body for debugging
+      rss_content = RSS::Rss.new('2.0')
+      rss_content.channel = RSS::Rss::Channel.new
+      rss_content.channel.title = "Feed currently offline: #{url}"
+      rss_content.channel.link = url
+      rss_content.channel.description = "The feed from '#{url}' is currently offline or returned no items."
+    end
 
     rss_content
   rescue HTTParty::Error, RSS::Error => e
@@ -69,9 +83,18 @@ def feed(url)
   end
 end
 
+def sanitize_response(response_body)
+  JSON.parse(response_body)
+rescue JSON::ParserError => e
+  puts "JSON parsing error: #{e.message}"
+  nil
+end
+
 def summarize_news(feeds)
   begin
-    news_content = feeds.map { |feed| feed.items.map(&:title).join('. ') }.join('. ')
+    news_content = feeds.map do |feed|
+      feed.items.map { |item| "#{item.title} (#{item.link})" }.join('. ')
+    end.join('. ')
     response = HTTParty.post(
       "https://models.inference.ai.azure.com/chat/completions",
       headers: {
@@ -82,11 +105,11 @@ def summarize_news(feeds)
         "messages": [
           {
             "role": "system",
-            "content": "Provide a concise summary of a news brief, focusing on the most important details and key context for the reader."
+            "content": "Provide a concise summary in the style of a news brief, focusing on the most important details and key context for the reader. Include inline links to the relevant articles within the summary"
           },
           {
             "role": "user",
-            "content": news_content
+            "content": news_content[0..3500] # Adjust to fit within token limits
           }
         ],
         "model": "gpt-4o",
@@ -95,23 +118,21 @@ def summarize_news(feeds)
         "top_p": 1
       }.to_json
     )
-    parsed_response = JSON.parse(response.body)
+    parsed_response = sanitize_response(response.body)
     
     # Log the entire response for debugging
     puts "API Response: #{response.body}"
     
-    if parsed_response["choices"] && !parsed_response["choices"].empty?
+    if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
       summary = parsed_response["choices"].first["message"]["content"]
       summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
+      summary = summary.gsub(/(##\s*)(.*)/, '<h2>\2</h2>') # Format headers
     else
       summary = "No summary available."
     end
     summary
   rescue HTTParty::Error => e
     puts "HTTP error summarizing news: #{e.message}"
-    nil
-  rescue JSON::ParserError => e
-    puts "JSON parsing error summarizing news: #{e.message}"
     nil
   rescue => e
     puts "General error summarizing news: #{e.message}"
