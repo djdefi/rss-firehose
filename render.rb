@@ -4,6 +4,8 @@
 require 'erb'
 require 'rss'
 require 'httparty'
+require 'dotenv/load'
+require 'json'
 
 def title
   ENV['RSS_TITLE'] || 'News Firehose'
@@ -58,6 +60,10 @@ def feed(url)
     # If the feed is empty or nil, set the rss_content a single item stating the feed is offline
     rss_content = RSS::Rss.new('2.0') if rss_content.nil? || rss_content.items.empty?
 
+    rss_content.items.each do |item|
+      item.summary = fetch_ai_summary(item.title)
+    end
+
     rss_content
   rescue HTTParty::Error, RSS::Error => e
     puts "Error fetching or parsing feed from '#{url}': #{e.class} - #{e.message}"
@@ -65,6 +71,38 @@ def feed(url)
   rescue => e
     puts "General error with feed '#{url}': #{e.message}"
     nil
+  end
+end
+
+def fetch_ai_summary(content)
+  url = "https://models.inference.ai.azure.com/chat/completions"
+  headers = {
+    "Content-Type" => "application/json",
+    "Authorization" => "Bearer #{ENV['GITHUB_TOKEN']}"
+  }
+  body = {
+    "messages": [
+      {
+        "role": "system",
+        "content": "Provide a concise summary of a news brief, focusing on the most important details and key context."
+      },
+      {
+        "role": "user",
+        "content": content
+      }
+    ],
+    "model": "gpt-4o",
+    "temperature": 1,
+    "max_tokens": 4096,
+    "top_p": 1
+  }.to_json
+
+  response = HTTParty.post(url, headers: headers, body: body)
+  if response.code == 200
+    json_response = JSON.parse(response.body)
+    json_response["choices"].first["message"]["content"]
+  else
+    "Summary not available"
   end
 end
 

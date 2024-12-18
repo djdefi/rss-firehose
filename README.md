@@ -63,3 +63,27 @@ Available environment variable options:
 "RSS_TITLE=My News"
 "RSS_DESCRIPTION=My really awesome news aggregation page"
 ```
+
+### Setting up AI Summary Feature
+
+To enable the AI summary feature, follow these steps:
+
+1. Set up your environment variables in a `.env` file or export them in your shell:
+
+```
+export GITHUB_TOKEN="your_github_token"
+```
+
+2. Ensure you have the required gems by running:
+
+```
+bundle install
+```
+
+3. Run the render script:
+
+```
+ruby render.rb
+```
+
+The AI summary feature will now be enabled, and each feed item will include an AI-generated summary.

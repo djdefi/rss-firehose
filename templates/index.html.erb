@@ -30,6 +30,7 @@
         <% feed(url).items.each do |item| -%>
       <li>
           <a href='<%= item.link %>' > <%= item.title %></a>
+          <p><%= item.summary %></p>
         </li>
     <% end -%>
       </ul>
