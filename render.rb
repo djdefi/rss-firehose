@@ -82,7 +82,7 @@ def summarize_news(feeds)
         "messages": [
           {
             "role": "system",
-            "content": "Provide a concise summary of a news brief, focusing on the most important details and key context."
+            "content": "Provide a concise summary of a news brief, focusing on the most important details and key context for the reader."
           },
           {
             "role": "user",
@@ -102,6 +102,7 @@ def summarize_news(feeds)
     
     if parsed_response["choices"] && !parsed_response["choices"].empty?
       summary = parsed_response["choices"].first["message"]["content"]
+      summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
     else
       summary = "No summary available."
     end
