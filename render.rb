@@ -4,6 +4,7 @@
 require 'erb'
 require 'rss'
 require 'httparty'
+require 'json'
 
 def title
   ENV['RSS_TITLE'] || 'News Firehose'
