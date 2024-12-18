@@ -13,35 +13,36 @@
 </head>
 <body>
 <div>
-	<div style="padding:10px;">
-		<strong style="color:#c00;"><%= title %></strong>
-		|
-		<span><%= Time.now.strftime('%F %R %Z') -%></span>
-	</div><hr/>
+  <div style="padding:10px;">
+    <strong style="color:#c00;"><%= title %></strong>
+    |
+    <span><%= Time.now.strftime('%F %R %Z') -%></span>
+  </div>
+  <hr/>
+  <% if news_summary && !news_summary.empty? %>
   <div class="news-summary">
     <strong>News Summary</strong>
     <p><%= news_summary %></p>
   </div>
   <hr/>
-	<div class="firehose">
-		<strong>Stories</strong>
-<p>
-<% rss_urls.each do |url| -%>
-
-  <h3>
-    <a href='<%= url.gsub '/feed/', '' %>'><%= url.gsub '/feed/', ''  %> - <%= feed(url).items.count %> items:</a>
-  </h3>
-      <ul>
-        <% feed(url).items.each do |item| -%>
-      <li>
-          <a href='<%= item.link %>' > <%= item.title %></a>
-        </li>
-    <% end -%>
-      </ul>
-
-<% end -%>
-</p>
-</div>
+  <% end %>
+  <div class="firehose">
+    <strong>Stories</strong>
+    <p>
+      <% rss_urls.each do |url| -%>
+        <h3>
+          <a href='<%= url.gsub '/feed/', '' %>'><%= url.gsub '/feed/', '' %> - <%= feed(url).items.count %> items:</a>
+        </h3>
+        <ul>
+          <% feed(url).items.each do |item| -%>
+            <li>
+              <a href='<%= item.link %>'><%= item.title %></a>
+            </li>
+          <% end -%>
+        </ul>
+      <% end -%>
+    </p>
+  </div>
 </div>
 
 <% if analytics_ua %>

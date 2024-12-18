@@ -102,8 +102,14 @@ def summarize_news(feeds)
       summary = "No summary available."
     end
     summary
+  rescue HTTParty::Error => e
+    puts "HTTP error summarizing news: #{e.message}"
+    nil
+  rescue JSON::ParserError => e
+    puts "JSON parsing error summarizing news: #{e.message}"
+    nil
   rescue => e
-    puts "Error summarizing news: #{e.message}"
+    puts "General error summarizing news: #{e.message}"
     nil
   end
 end
