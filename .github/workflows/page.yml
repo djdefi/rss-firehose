@@ -23,6 +23,15 @@ jobs:
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
     - uses: actions/checkout@v4
 
+    - name: Cache AI summary
+      id: cache-ai-summary
+      uses: actions/cache@v4
+      with:
+        path: cache
+        key: ai-summary-${{ github.run_id }}-${{ github.run_number }}
+        restore-keys: |
+          ai-summary-
+
     - name: Setup Ruby
       uses: ruby/setup-ruby@v1.190.0
       with:
@@ -32,6 +41,10 @@ jobs:
     - run: bundle exec ruby render.rb
       env:
         GITHUB_TOKEN: ${{ secrets.API_TOKEN }}
+
+    - name: Prune old summaries
+      run: |
+        find cache -type f -name '*.json' -mtime +1 -delete
 
     - name: Git AV Scan
       if: success()

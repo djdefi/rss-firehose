@@ -5,6 +5,10 @@ require 'erb'
 require 'rss'
 require 'httparty'
 require 'json'
+require 'time'
+require 'fileutils'
+
+CACHE_FILE = 'cache/ai_summary_cache.json'
 
 def title
   ENV['RSS_TITLE'] || 'News Firehose'
@@ -149,9 +153,42 @@ def summarize_news(feed)
   end
 end
 
+def cache_summary(summary)
+  FileUtils.mkdir_p('cache')
+  File.open(CACHE_FILE, 'w') do |f|
+    f.write({ timestamp: Time.now.utc.iso8601, summary: summary }.to_json)
+  end
+end
+
+def load_cached_summary
+  return unless File.exist?(CACHE_FILE)
+  
+  data = JSON.parse(File.read(CACHE_FILE))
+  timestamp = Time.parse(data['timestamp'])
+  summary = data['summary']
+  
+  if Time.now.utc - timestamp < 24 * 60 * 60
+    summary
+  else
+    nil
+  end
+rescue JSON::ParserError, ArgumentError => e
+  puts "Error loading cached summary: #{e.message}"
+  nil
+end
+
 feeds = rss_urls.map { |url| [url, feed(url)] }.to_h
-feed_summaries = feeds.transform_values { |feed| summarize_news(feed) }
-overall_summary = summarize_news(feeds.values)
+cached_summary = load_cached_summary
+
+if cached_summary
+  overall_summary = cached_summary
+  puts "Using cached summary."
+else
+  feed_summaries = feeds.transform_values { |feed| summarize_news(feed) }
+  overall_summary = summarize_news(feeds.values)
+  cache_summary(overall_summary)
+  puts "Generated new summary."
+end
 
 puts "Overall Summary: #{overall_summary}"
 
