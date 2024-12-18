@@ -4,7 +4,6 @@
 require 'erb'
 require 'rss'
 require 'httparty'
-require 'dotenv/load'
 require 'json'
 
 def title
