@@ -22,3 +22,21 @@ jobs:
 
     - name: Run render_test.rb
       run: bundle exec ruby test/render_test.rb
+
+    - name: Install Code Scanning integration
+      run: bundle add code-scanning-rubocop --version 0.3.0 --skip-install
+
+    - name: Install dependencies
+      run: bundle install
+
+    - name: Rubocop run
+      run: |
+        bash -c "
+          bundle exec rubocop --require code_scanning --format CodeScanning::SarifFormatter -o rubocop.sarif
+          [[ $? -ne 2 ]]
+        "
+
+    - name: Upload Sarif output
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: rubocop.sarif
