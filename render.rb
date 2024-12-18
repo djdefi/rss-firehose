@@ -26,7 +26,7 @@ def analytics_ua
   ENV['ANALYTICS_UA']
 end
 
-def render_html(news_summary)
+def render_html(overall_summary, feed_summaries)
   begin
     html = File.open('templates/index.html.erb').read
     template = ERB.new(html, trim_mode: '-')
@@ -90,11 +90,17 @@ rescue JSON::ParserError => e
   nil
 end
 
-def summarize_news(feeds)
+def convert_markdown_links_to_html(text)
+  text.gsub(/\[([^\]]+)\]\(([^)]+)\)/, '<a href="\2">\1</a>')
+end
+
+def summarize_news(feed)
   begin
-    news_content = feeds.map do |feed|
-      feed.items.map { |item| "#{item.title} (#{item.link})" }.join('. ')
-    end.join('. ')
+    news_content = if feed.is_a?(Array)
+                     feed.flat_map { |f| f.items.map { |item| "#{item.title} (#{item.link})" } }.join('. ')
+                   else
+                     feed.items.map { |item| "#{item.title} (#{item.link})" }.join('. ')
+                   end
     response = HTTParty.post(
       "https://models.inference.ai.azure.com/chat/completions",
       headers: {
@@ -127,6 +133,7 @@ def summarize_news(feeds)
       summary = parsed_response["choices"].first["message"]["content"]
       summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
       summary = summary.gsub(/(##\s*)(.*)/, '<h2>\2</h2>') # Format headers
+      summary = convert_markdown_links_to_html(summary) # Convert Markdown links to HTML
     else
       summary = "No summary available."
     end
@@ -140,13 +147,15 @@ def summarize_news(feeds)
   end
 end
 
-feeds = rss_urls.map { |url| feed(url) }.compact
-news_summary = summarize_news(feeds)
-puts "News Summary: #{news_summary}"
+feeds = rss_urls.map { |url| [url, feed(url)] }.to_h
+feed_summaries = feeds.transform_values { |feed| summarize_news(feed) }
+overall_summary = summarize_news(feeds.values)
+
+puts "Overall Summary: #{overall_summary}"
 
 begin
   render_manifest
-  render_html(news_summary)
+  render_html(overall_summary, feed_summaries)
 rescue => e
   puts "Error during rendering process: #{e.message}"
 end

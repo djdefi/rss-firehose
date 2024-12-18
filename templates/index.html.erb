@@ -19,10 +19,10 @@
     <span><%= Time.now.strftime('%F %R %Z') -%></span>
   </div>
   <hr/>
-  <% if news_summary && !news_summary.empty? %>
-  <div class="news-summary" style="padding:10px;">
-    <strong>News Summary</strong>
-    <p><%= news_summary %></p>
+  <% if overall_summary && !overall_summary.empty? %>
+  <div class="overall-summary" style="padding:10px;">
+    <strong>Overall Summary</strong>
+    <p><%= overall_summary %></p>
   </div>
   <hr/>
   <% end %>
@@ -33,6 +33,12 @@
         <h3>
           <a href='<%= url.gsub '/feed/', '' %>'><%= url.gsub '/feed/', '' %> - <%= feed(url).items.count %> items:</a>
         </h3>
+        <% if feed_summaries[url] && !feed_summaries[url].empty? %>
+        <div class="feed-summary" style="padding:10px;">
+          <strong>Feed Summary</strong>
+          <p><%= feed_summaries[url] %></p>
+        </div>
+        <% end %>
         <ul>
           <% feed(url).items.each do |item| -%>
             <li>
