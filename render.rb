@@ -134,6 +134,7 @@ def summarize_news(feed)
       summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
       summary = summary.gsub(/(##\s*)(.*)/, '<h2>\2</h2>') # Format headers
       summary = convert_markdown_links_to_html(summary) # Convert Markdown links to HTML
+      summary = summary.gsub(/\*\*(.*?)\*\*/, '<b>\1</b>') # Convert **text** to bold
     else
       summary = "No summary available."
     end
