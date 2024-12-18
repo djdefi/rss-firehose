@@ -60,7 +60,9 @@ def feed(url)
     rss_content = RSS::Rss.new('2.0') if rss_content.nil? || rss_content.items.empty?
 
     rss_content.items.each do |item|
-      item.summary = fetch_ai_summary(item.title)
+      if item.respond_to?(:summary=)
+        item.summary = fetch_ai_summary(item.title)
+      end
     end
 
     rss_content
