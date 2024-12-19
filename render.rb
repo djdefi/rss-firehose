@@ -123,7 +123,7 @@ def summarize_news(feed)
             "content": news_content[0..4096] # Adjust to fit within token limits
           }
         ],
-        "model": "gpt-4o",
+        "model": "gpt-4o-mini",
         "temperature": 1,
         "max_tokens": 4096,
         "top_p": 1
