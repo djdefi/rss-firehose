@@ -23,5 +23,16 @@ class RenderTest < Minitest::Test
     assert_includes output, placeholder_message, "The placeholder message for a parsing error is not correctly inserted."
   end
 
+  def test_backup_feed_functionality
+    # Simulate a primary feed failure and verify backup feed is used
+    primary_feed_url = "http://example.com/primary_feed"
+    backup_feed_url = "http://example.com/backup_feed"
+    placeholder_message = "<a href='http://example.com/backup_feed'>http://example.com/backup_feed - 0 items:</a>"
+    # Run render.rb with the primary feed URL and backup feed URL
+    `RSS_URLS=#{primary_feed_url} RSS_BACKUP_URLS=#{backup_feed_url} ruby render.rb`
+    output = File.read('public/index.html')
+    assert_includes output, placeholder_message, "The backup feed is not correctly used when the primary feed fails."
+  end
+
   # Additional tests to verify specific content or structure can be added here
 end

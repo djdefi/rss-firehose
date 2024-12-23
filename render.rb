@@ -15,10 +15,19 @@ def title
 end
 
 def rss_urls
-  if ENV['RSS_URLS']
-    ENV['RSS_URLS'].split(',')
+  urls = if ENV['RSS_URLS']
+           ENV['RSS_URLS'].split(',')
+         else
+           File.readlines('urls.txt').map(&:chomp)
+         end
+  urls + rss_backup_urls
+end
+
+def rss_backup_urls
+  if ENV['RSS_BACKUP_URLS']
+    ENV['RSS_BACKUP_URLS'].split(',')
   else
-    File.readlines('urls.txt').map(&:chomp)
+    ['https://calmatters.org/feed/']
   end
 end
 
@@ -75,6 +84,12 @@ def feed(url)
       rss_content.channel.title = "Feed currently offline: #{url}"
       rss_content.channel.link = url
       rss_content.channel.description = "The feed from '#{url}' is currently offline or returned no items."
+      # Switch to backup feed if available
+      backup_url = rss_backup_urls.find { |backup| backup != url }
+      if backup_url
+        puts "Switching to backup feed: #{backup_url}"
+        return feed(backup_url)
+      end
     end
 
     rss_content
