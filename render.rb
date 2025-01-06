@@ -131,7 +131,7 @@ def summarize_news(feed)
         "messages": [
           {
             "role": "system",
-            "content": "Provide a dense and concise summary in the style of a news brief, focusing on the most important details and key context for the reader. Do not add a title to the summary. Include inline links to the relevant articles within the summary. Focus on local news, emergencies, notable events and dates. Follow the AP Stylebook guidelines for news writing."
+            "content": "Provide a dense and concise summary in the style of a news brief, focusing on the most important details and key context for the reader. Do not add a title to the summary. Include inline links to the relevant articles within the summary. Focus on local news, emergencies, notable events and dates. Follow the AP Stylebook guidelines for news writing. Ensure the summary is no longer than 150 words and is written in a neutral and objective tone. Use bullet points for clarity where appropriate."
           },
           {
             "role": "user",
