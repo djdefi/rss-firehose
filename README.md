@@ -64,4 +64,22 @@ Available environment variable options:
 "RSS_BACKUP_URLS=https://backup1/feed,http://backup2/rss"
 "RSS_TITLE=My News"
 "RSS_DESCRIPTION=My really awesome news aggregation page"
+"GITHUB_TOKEN=your_github_token_for_ai_summaries"
 ```
+
+### AI-Powered Summaries
+
+RSS Firehose can generate AI-powered summaries of your news feeds using GitHub's Models service. To enable this feature:
+
+1. Set the `GITHUB_TOKEN` environment variable with your GitHub personal access token
+2. Summaries are cached for 24 hours to minimize API usage
+3. If no token is provided, the app gracefully falls back to displaying feeds without summaries
+
+### Features
+
+- **Robust Error Handling**: Feeds that are offline or unreachable are gracefully handled with placeholder content
+- **Smart Backup Feeds**: Configure backup RSS feeds that are used when primary feeds are empty
+- **AI Summarization**: Optional AI-powered news summaries using GitHub Models
+- **Caching**: Intelligent caching of AI summaries to reduce API usage
+- **Input Validation**: Automatic validation of RSS URLs and configuration
+- **Responsive Design**: Mobile-friendly HTML output with accessibility features

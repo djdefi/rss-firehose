@@ -11,28 +11,48 @@ require 'fileutils'
 CACHE_FILE = 'cache/ai_summary_cache.json'
 
 def title
-  ENV['RSS_TITLE'] || 'News Firehose'
+  title = ENV['RSS_TITLE'] || 'News Firehose'
+  title.strip.empty? ? 'News Firehose' : title
 end
 
 def rss_urls
   urls = if ENV['RSS_URLS']
-           ENV['RSS_URLS'].split(',').map(&:strip)
+           ENV['RSS_URLS'].split(',').map(&:strip).reject(&:empty?)
          else
-           File.readlines('urls.txt').map(&:chomp).reject(&:empty?)
+           begin
+             File.readlines('urls.txt').map(&:chomp).reject(&:empty?)
+           rescue Errno::ENOENT
+             puts "Warning: urls.txt not found, using backup URLs"
+             []
+           end
          end
-  urls.empty? ? rss_backup_urls : urls
+  
+  # Validate URLs
+  valid_urls = urls.select do |url|
+    url.match?(/\Ahttps?:\/\//)
+  end
+  
+  if valid_urls != urls
+    puts "Warning: Some invalid URLs were filtered out"
+  end
+  
+  valid_urls.empty? ? rss_backup_urls : valid_urls
 end
 
 def rss_backup_urls
-  if ENV['RSS_BACKUP_URLS']
-    ENV['RSS_BACKUP_URLS'].split(',').map(&:strip)
-  else
-    ['https://calmatters.org/feed/']
-  end
+  urls = if ENV['RSS_BACKUP_URLS']
+           ENV['RSS_BACKUP_URLS'].split(',').map(&:strip).reject(&:empty?)
+         else
+           ['https://calmatters.org/feed/']
+         end
+  
+  # Validate backup URLs
+  urls.select { |url| url.match?(/\Ahttps?:\/\//) }
 end
 
 def description
-  ENV['RSS_DESCRIPTION'] || 'View the latest news.'
+  desc = ENV['RSS_DESCRIPTION'] || 'View the latest news.'
+  desc.strip.empty? ? 'View the latest news.' : desc
 end
 
 def analytics_ua
@@ -195,28 +215,53 @@ rescue => e
 end
 
 def cache_summary(summary)
-  FileUtils.mkdir_p('cache')
-  File.open(CACHE_FILE, 'w') do |f|
-    f.write({ timestamp: Time.now.utc.iso8601, summary: summary }.to_json)
+  return unless summary && !summary.empty?
+  
+  begin
+    FileUtils.mkdir_p('cache')
+    File.open(CACHE_FILE, 'w') do |f|
+      f.write({ timestamp: Time.now.utc.iso8601, summary: summary }.to_json)
+    end
+    puts "Summary cached successfully"
+  rescue => e
+    puts "Warning: Failed to cache summary: #{e.message}"
   end
 end
 
 def load_cached_summary
   return unless File.exist?(CACHE_FILE)
   
-  data = JSON.parse(File.read(CACHE_FILE))
-  timestamp = Time.parse(data['timestamp'])
-  summary = data['summary']
-  
-  if Time.now.utc - timestamp < 24 * 60 * 60
-    summary
-  else
+  begin
+    data = JSON.parse(File.read(CACHE_FILE))
+    timestamp = Time.parse(data['timestamp'])
+    summary = data['summary']
+    
+    # Check if cache is still valid (24 hours)
+    if Time.now.utc - timestamp < 24 * 60 * 60
+      puts "Loaded cached summary from #{timestamp}"
+      summary
+    else
+      puts "Cached summary expired, will generate new one"
+      nil
+    end
+  rescue JSON::ParserError, ArgumentError => e
+    puts "Warning: Error loading cached summary: #{e.message}"
+    nil
+  rescue => e
+    puts "Warning: Unexpected error loading cache: #{e.message}"
     nil
   end
-rescue JSON::ParserError, ArgumentError => e
-  puts "Error loading cached summary: #{e.message}"
-  nil
 end
+
+# Validate configuration and log startup info
+puts "RSS Firehose starting..."
+puts "Title: #{title}"
+puts "Description: #{description}"
+puts "RSS URLs: #{rss_urls.join(', ')}" if rss_urls.any?
+puts "Backup URLs: #{rss_backup_urls.join(', ')}" if rss_backup_urls.any?
+puts "GitHub Token: #{ENV['GITHUB_TOKEN'] ? 'configured' : 'not configured (AI summaries disabled)'}"
+puts "Analytics UA: #{ENV['ANALYTICS_UA'] ? 'configured' : 'not configured'}"
+puts ""
 
 feeds = rss_urls.map { |url| [url, feed(url)] }.to_h.compact
 cached_summary = load_cached_summary
