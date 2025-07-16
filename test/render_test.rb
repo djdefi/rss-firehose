@@ -16,7 +16,8 @@ class RenderTest < Minitest::Test
   def test_placeholder_message_for_parsing_error
     # Simulate a parsing error by providing an invalid URL
     invalid_feed_url = "http://example.com/invalid_feed"
-    placeholder_message = "<a href='http://example.com/invalid_feed'>http://example.com/invalid_feed - 0 items:</a>"
+    # The template creates a feed item showing it's offline
+    placeholder_message = "Feed offline: http://example.com/invalid_feed"
     # Run render.rb with the invalid URL to simulate the parsing error
     `RSS_URLS=#{invalid_feed_url} ruby render.rb`
     output = File.read('public/index.html')
@@ -24,14 +25,25 @@ class RenderTest < Minitest::Test
   end
 
   def test_backup_feed_functionality
-    # Simulate a primary feed failure and verify backup feed is used
+    # Simulate a primary feed failure and verify the primary feed shows as offline
     primary_feed_url = "http://example.com/primary_feed"
     backup_feed_url = "http://example.com/backup_feed"
-    placeholder_message = "<a href='http://example.com/backup_feed'>http://example.com/backup_feed - 0 items:</a>"
+    # Since we changed the backup logic, we expect to see the primary feed marked as offline
+    placeholder_message = "Feed offline: http://example.com/primary_feed"
     # Run render.rb with the primary feed URL and backup feed URL
     `RSS_URLS=#{primary_feed_url} RSS_BACKUP_URLS=#{backup_feed_url} ruby render.rb`
     output = File.read('public/index.html')
-    assert_includes output, placeholder_message, "The backup feed is not correctly used when the primary feed fails."
+    assert_includes output, placeholder_message, "The primary feed is not correctly shown as offline when it fails."
+  end
+
+  def test_empty_urls_fallback_to_backup
+    # Test that when no RSS_URLS are provided, backup feeds are used
+    backup_feed_url = "http://example.com/backup_feed"
+    # Run render.rb with empty RSS_URLS and a backup feed URL
+    `RSS_URLS="" RSS_BACKUP_URLS=#{backup_feed_url} ruby render.rb`
+    output = File.read('public/index.html')
+    placeholder_message = "Feed offline: http://example.com/backup_feed"
+    assert_includes output, placeholder_message, "Backup feeds are not used when primary URLs are empty."
   end
 
   # Additional tests to verify specific content or structure can be added here

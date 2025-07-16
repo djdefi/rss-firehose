@@ -16,16 +16,16 @@ end
 
 def rss_urls
   urls = if ENV['RSS_URLS']
-           ENV['RSS_URLS'].split(',')
+           ENV['RSS_URLS'].split(',').map(&:strip)
          else
-           File.readlines('urls.txt').map(&:chomp)
+           File.readlines('urls.txt').map(&:chomp).reject(&:empty?)
          end
-  urls + rss_backup_urls
+  urls.empty? ? rss_backup_urls : urls
 end
 
 def rss_backup_urls
   if ENV['RSS_BACKUP_URLS']
-    ENV['RSS_BACKUP_URLS'].split(',')
+    ENV['RSS_BACKUP_URLS'].split(',').map(&:strip)
   else
     ['https://calmatters.org/feed/']
   end
@@ -75,31 +75,39 @@ def feed(url)
       response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
       rss_content = RSS::Parser.parse(response.body, false) if response.code == 200
     end
-    # If still empty or nil, set the rss_content to a single item stating the feed is offline
+    # If still empty or nil, create a placeholder RSS object
     if rss_content.nil? || rss_content.items.empty?
       puts "Feed from '#{url}' failed after retry. Response Code: #{response.code}"
       puts "Response Body: #{response.body[0..500]}" # Log first 500 characters of the response body for debugging
-      rss_content = RSS::Rss.new('2.0')
-      rss_content.channel = RSS::Rss::Channel.new
-      rss_content.channel.title = "Feed currently offline: #{url}"
-      rss_content.channel.link = url
-      rss_content.channel.description = "The feed from '#{url}' is currently offline or returned no items."
-      # Switch to backup feed if available
-      backup_url = rss_backup_urls.find { |backup| backup != url }
-      if backup_url
-        puts "Switching to backup feed: #{backup_url}"
-        return feed(backup_url)
-      end
+      rss_content = create_offline_feed(url)
     end
 
     rss_content
   rescue HTTParty::Error, RSS::Error => e
     puts "Error fetching or parsing feed from '#{url}': #{e.class} - #{e.message}"
-    return "Feed currently offline: #{url}"
+    create_offline_feed(url)
   rescue => e
     puts "General error with feed '#{url}': #{e.message}"
-    nil
+    create_offline_feed(url)
   end
+end
+
+# Create a placeholder RSS feed object for offline/failed feeds
+def create_offline_feed(url)
+  rss_content = RSS::Rss.new('2.0')
+  rss_content.channel = RSS::Rss::Channel.new
+  rss_content.channel.title = "Feed currently offline"
+  rss_content.channel.link = url
+  rss_content.channel.description = "The feed from '#{url}' is currently offline or returned no items."
+  
+  # Add a placeholder item
+  item = RSS::Rss::Channel::Item.new
+  item.title = "Feed offline: #{url}"
+  item.link = url
+  item.description = "This feed is currently unavailable."
+  rss_content.channel.items << item
+  
+  rss_content
 end
 
 def sanitize_response(response_body)
@@ -115,12 +123,23 @@ def convert_markdown_links_to_html(text)
 end
 
 def summarize_news(feed)
+  return "No content available for summarization." if feed.nil?
+  
   begin
     news_content = if feed.is_a?(Array)
-                     feed.flat_map { |f| f.items.map { |item| "#{item.title} (#{item.link})" } }.join('. ')
+                     feed.flat_map { |f| extract_feed_content(f) }.join('. ')
                    else
-                     feed.items.map { |item| "#{item.title} (#{item.link})" }.join('. ')
+                     extract_feed_content(feed).join('. ')
                    end
+    
+    return "No articles available for summarization." if news_content.empty?
+    
+    # Skip AI summarization if no GITHUB_TOKEN is provided
+    unless ENV['GITHUB_TOKEN']
+      puts "No GITHUB_TOKEN provided, skipping AI summarization"
+      return "AI summarization unavailable - no API token configured."
+    end
+    
     response = HTTParty.post(
       "https://models.inference.ai.azure.com/chat/completions",
       headers: {
@@ -131,7 +150,7 @@ def summarize_news(feed)
         "messages": [
           {
             "role": "system",
-            "content": "Provide a dense and concise summary in the style of a news brief, focusing on the most important details and key context for the reader. Do not add a title to the summary. Include inline links to the relevant articles within the summary. Focus on local news, emergencies, notable events and dates. Follow the AP Stylebook guidelines for news writing. Ensure the summary is no longer than 150 words and is written in a neutral and objective tone. Use bullet points for clarity where appropriate."
+            "content": "Create a concise news summary under 150 words. Focus on key facts, notable events, and important context. Use neutral tone following AP style. Include relevant article links. Use bullet points for multiple topics."
           },
           {
             "role": "user",
@@ -139,15 +158,12 @@ def summarize_news(feed)
           }
         ],
         "model": "gpt-4o-mini",
-        "temperature": 1,
-        "max_tokens": 4096,
+        "temperature": 0.3,
+        "max_tokens": 300,
         "top_p": 1
       }.to_json
     )
     parsed_response = sanitize_response(response.body)
-    
-    # Log the entire response for debugging
-    puts "API Response: #{response.body}"
     
     if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
       summary = parsed_response["choices"].first["message"]["content"]
@@ -155,17 +171,27 @@ def summarize_news(feed)
       summary = summary.gsub(/(##\s*)(.*)/, '<h2>\2</h2>') # Format headers
       summary = convert_markdown_links_to_html(summary) # Convert Markdown links to HTML
       summary = summary.gsub(/\*\*(.*?)\*\*/, '<b>\1</b>') # Convert **text** to bold
+      summary
     else
-      summary = "No summary available."
+      "Summary generation failed - no valid response from AI service."
     end
-    summary
   rescue HTTParty::Error => e
     puts "HTTP error summarizing news: #{e.message}"
-    nil
+    "Summary unavailable due to network error."
   rescue => e
     puts "General error summarizing news: #{e.message}"
-    nil
+    "Summary generation failed due to technical error."
   end
+end
+
+# Extract content from a feed, handling offline feeds gracefully
+def extract_feed_content(feed)
+  return [] if feed.nil? || !feed.respond_to?(:items) || feed.items.nil?
+  
+  feed.items.map { |item| "#{item.title} (#{item.link})" }.compact
+rescue => e
+  puts "Error extracting feed content: #{e.message}"
+  []
 end
 
 def cache_summary(summary)
@@ -192,7 +218,7 @@ rescue JSON::ParserError, ArgumentError => e
   nil
 end
 
-feeds = rss_urls.map { |url| [url, feed(url)] }.to_h
+feeds = rss_urls.map { |url| [url, feed(url)] }.to_h.compact
 cached_summary = load_cached_summary
 
 if cached_summary
@@ -200,10 +226,17 @@ if cached_summary
   feed_summaries = feeds.transform_values { |feed| "Cached summary used." }
   puts "Using cached summary."
 else
+  puts "Generating summaries for #{feeds.size} feeds..."
   feed_summaries = feeds.transform_values { |feed| summarize_news(feed) }
   overall_summary = summarize_news(feeds.values)
-  cache_summary(overall_summary)
-  puts "Generated new summary."
+  
+  # Only cache if we actually got a useful summary
+  if overall_summary && !overall_summary.include?("unavailable") && !overall_summary.include?("failed")
+    cache_summary(overall_summary)
+    puts "Generated and cached new summary."
+  else
+    puts "Generated summary but not caching due to errors."
+  end
 end
 
 puts "Overall Summary: #{overall_summary}"
@@ -211,6 +244,8 @@ puts "Overall Summary: #{overall_summary}"
 begin
   render_manifest
   render_html(overall_summary, feed_summaries)
+  puts "Successfully rendered HTML and manifest files."
 rescue => e
   puts "Error during rendering process: #{e.message}"
+  puts "Backtrace: #{e.backtrace.first(5).join("\n")}"
 end
