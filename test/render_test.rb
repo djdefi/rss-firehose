@@ -47,4 +47,16 @@ class RenderTest < Minitest::Test
   end
 
   # Additional tests to verify specific content or structure can be added here
+  
+  def test_different_summary_functions_exist
+    # Load the render.rb file to get access to the functions
+    load File.expand_path('../render.rb', __dir__)
+    
+    # Test that both summary functions exist
+    assert_includes Object.private_instance_methods, :summarize_news, "summarize_news function should exist"
+    assert_includes Object.private_instance_methods, :summarize_overall_news, "summarize_overall_news function should exist"
+    
+    puts "✓ Both summarize_news and summarize_overall_news functions are available"
+    puts "Note: Full summary variation testing requires GITHUB_TOKEN for integration validation"
+  end
 end

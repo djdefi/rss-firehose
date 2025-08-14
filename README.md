@@ -75,6 +75,24 @@ RSS Firehose can generate AI-powered summaries of your news feeds using GitHub's
 2. Summaries are cached for 24 hours to minimize API usage
 3. If no token is provided, the app gracefully falls back to displaying feeds without summaries
 
+#### Summary Variation Features
+
+The system generates two distinct types of summaries with different approaches:
+
+**Individual Feed Summaries**
+- Focus on unique aspects and specific details of each news source
+- Use engaging language with varied sentence structure  
+- Highlight what makes each feed distinctive
+- Higher creativity setting for more varied output
+
+**Overall Summary**
+- Provides big-picture analysis across all news sources
+- Identifies themes, patterns, and trends 
+- Uses analytical language emphasizing implications and context
+- Focuses on connections between stories rather than individual details
+
+This dual approach ensures varied and interesting content rather than repetitive summaries.
+
 ### Features
 
 - **Robust Error Handling**: Feeds that are offline or unreachable are gracefully handled with placeholder content
