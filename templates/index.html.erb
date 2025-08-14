@@ -28,6 +28,12 @@
   <% if defined?(breaking_news) && breaking_news && !breaking_news.empty? %>
   <section class="breaking-news" style="padding:10px;" aria-labelledby="breaking-news-title">
     <h2 id="breaking-news-title" style="color:#c00;">🚨 Breaking News - YubaNet Live Updates</h2>
+    <% if defined?(breaking_news_summary) && breaking_news_summary && !breaking_news_summary.include?("unavailable") && !breaking_news_summary.include?("failed") %>
+    <div style="background-color:#fff5f5; border-left:4px solid #c00; padding:10px; margin:10px 0;">
+      <h3 style="margin-top:0; color:#c00;">AI Summary</h3>
+      <p><%= breaking_news_summary %></p>
+    </div>
+    <% end %>
     <div>
       <h3>
         <a href='https://yubanet.com/featured/now/' aria-label="YubaNet Breaking News">yubanet.com/featured/now - <%= breaking_news.size %> recent updates:</a>

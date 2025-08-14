@@ -59,7 +59,7 @@ def analytics_ua
   ENV['ANALYTICS_UA']
 end
 
-def render_html(overall_summary, feed_summaries, breaking_news = [])
+def render_html(overall_summary, feed_summaries, breaking_news = [], breaking_news_summary = nil)
   begin
     html = File.open('templates/index.html.erb').read
     template = ERB.new(html, trim_mode: '-')
@@ -325,6 +325,67 @@ def fetch_yubanet_breaking_news
   end
 end
 
+# Summarize breaking news content using AI
+def summarize_breaking_news(breaking_news)
+  return "No breaking news available for summarization." if breaking_news.nil? || breaking_news.empty?
+  
+  begin
+    # Combine the latest breaking news entries for summarization
+    latest_entries = breaking_news.first(5) # Limit to most recent 5 entries
+    content_text = latest_entries.map { |entry| "#{entry[:timestamp]}: #{entry[:content]}" }.join('. ')
+    
+    return "No breaking news content available for summarization." if content_text.empty?
+    
+    # Skip AI summarization if no GITHUB_TOKEN is provided
+    unless ENV['GITHUB_TOKEN']
+      puts "No GITHUB_TOKEN provided, skipping breaking news AI summarization"
+      return "AI summarization unavailable - no API token configured."
+    end
+    
+    response = HTTParty.post(
+      "https://models.inference.ai.azure.com/chat/completions",
+      headers: {
+        "Content-Type" => "application/json",
+        "Authorization" => "Bearer #{ENV['GITHUB_TOKEN']}"
+      },
+      body: {
+        "messages": [
+          {
+            "role": "system",
+            "content": "Create a concise summary of the breaking news updates under 100 words. Focus on the most critical information and current developments. Identify patterns, key issues, and immediate impacts. Use urgent but clear language appropriate for breaking news. Highlight what readers need to know right now."
+          },
+          {
+            "role": "user",
+            "content": content_text[0..3072] # Limit content to fit within token limits
+          }
+        ],
+        "model": "gpt-4o-mini",
+        "temperature": 0.3, # Lower temperature for factual breaking news
+        "max_tokens": 200,
+        "top_p": 0.9
+      }.to_json
+    )
+    parsed_response = sanitize_response(response.body)
+    
+    if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
+      summary = parsed_response["choices"].first["message"]["content"]
+      summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
+      summary = summary.gsub(/(##\s*)(.*)/, '<h2>\2</h2>') # Format headers
+      summary = convert_markdown_links_to_html(summary) # Convert Markdown links to HTML
+      summary = summary.gsub(/\*\*(.*?)\*\*/, '<b>\1</b>') # Convert **text** to bold
+      summary
+    else
+      "Summary generation failed - no valid response from AI service."
+    end
+  rescue HTTParty::Error => e
+    puts "HTTP error summarizing breaking news: #{e.message}"
+    "Summary unavailable due to network error."
+  rescue => e
+    puts "General error summarizing breaking news: #{e.message}"
+    "Summary generation failed due to technical error."
+  end
+end
+
 def cache_summary(summary)
   return unless summary && !summary.empty?
   
@@ -376,6 +437,7 @@ puts ""
 
 feeds = rss_urls.map { |url| [url, feed(url)] }.to_h.compact
 breaking_news = fetch_yubanet_breaking_news
+breaking_news_summary = summarize_breaking_news(breaking_news)
 cached_summary = load_cached_summary
 
 if cached_summary
@@ -400,7 +462,7 @@ puts "Overall Summary: #{overall_summary}"
 
 begin
   render_manifest
-  render_html(overall_summary, feed_summaries, breaking_news)
+  render_html(overall_summary, feed_summaries, breaking_news, breaking_news_summary)
   puts "Successfully rendered HTML and manifest files."
 rescue => e
   puts "Error during rendering process: #{e.message}"
