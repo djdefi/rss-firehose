@@ -130,6 +130,16 @@ def create_offline_feed(url)
   rss_content
 end
 
+# HTML escape function to prevent XSS attacks
+def html_escape(text)
+  return text unless text.is_a?(String)
+  text.gsub('&', '&amp;')
+      .gsub('<', '&lt;')
+      .gsub('>', '&gt;')
+      .gsub('"', '&quot;')
+      .gsub("'", '&#39;')
+end
+
 def sanitize_response(response_body)
   JSON.parse(response_body)
 rescue JSON::ParserError => e
@@ -142,11 +152,11 @@ def convert_markdown_links_to_html(text)
   # Use a more specific regex that avoids catastrophic backtracking
   # This pattern ensures we match only well-formed markdown links
   text.gsub(/\[([^\]]{1,100})\]\(([^)\s]{1,200})\)/) do |match|
-    link_text = $1
+    link_text = html_escape($1)
     url = $2
     # Additional safety: ensure URL uses safe protocols
     if url.match?(/\A(https?|ftp):\/\//)
-      "<a href=\"#{url}\">#{link_text}</a>"
+      "<a href=\"#{html_escape(url)}\">#{link_text}</a>"
     else
       match # Return original text if URL doesn't look safe
     end
@@ -199,9 +209,9 @@ def summarize_news(feed)
     if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
       summary = parsed_response["choices"].first["message"]["content"]
       summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
-      summary = summary.gsub(/(##\s*)(.*)/, '<h2>\2</h2>') # Format headers
+      summary = summary.gsub(/(##\s*)(.*)/) { |match| "<h2>#{html_escape($2)}</h2>" } # Format headers with escaping
       summary = convert_markdown_links_to_html(summary) # Convert Markdown links to HTML
-      summary = summary.gsub(/\*\*(.*?)\*\*/, '<b>\1</b>') # Convert **text** to bold
+      summary = summary.gsub(/\*\*(.*?)\*\*/) { |match| "<b>#{html_escape($1)}</b>" } # Convert **text** to bold with proper escaping
       summary
     else
       "Summary generation failed - no valid response from AI service."
@@ -257,9 +267,9 @@ def summarize_overall_news(feeds)
     if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
       summary = parsed_response["choices"].first["message"]["content"]
       summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
-      summary = summary.gsub(/(##\s*)(.*)/, '<h2>\2</h2>') # Format headers
+      summary = summary.gsub(/(##\s*)(.*)/) { |match| "<h2>#{html_escape($2)}</h2>" } # Format headers with escaping
       summary = convert_markdown_links_to_html(summary) # Convert Markdown links to HTML
-      summary = summary.gsub(/\*\*(.*?)\*\*/, '<b>\1</b>') # Convert **text** to bold
+      summary = summary.gsub(/\*\*(.*?)\*\*/) { |match| "<b>#{html_escape($1)}</b>" } # Convert **text** to bold with proper escaping
       summary
     else
       "Summary generation failed - no valid response from AI service."
@@ -295,9 +305,11 @@ def fetch_yubanet_breaking_news
       html_content = response.body
       
       # Look for patterns like: <p><strong>August 13, 2025 at 2:44 PM</strong> The power outage...
-      html_content.scan(/<p><strong>([^<]+(?:AM|PM)[^<]*)<\/strong>\s*([^<]+(?:[^<]|<[^p])*?)<\/p>/m) do |timestamp, content|
+      # Use a safer regex pattern to avoid ReDoS vulnerabilities
+      html_content.scan(/<p><strong>([^<]{1,200}(?:AM|PM)[^<]{0,50})<\/strong>\s*([^<]{1,2000})<\/p>/m) do |timestamp, content|
         # Clean up the content by removing HTML tags and extra whitespace
-        clean_content = content.gsub(/<[^>]+>/, '').strip
+        # Use gsub with a character class to safely remove HTML tags
+        clean_content = content.gsub(/<[^>]{1,50}>/, '').strip
         clean_timestamp = timestamp.strip
         
         # Skip very short or empty content
@@ -370,9 +382,9 @@ def summarize_breaking_news(breaking_news)
     if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
       summary = parsed_response["choices"].first["message"]["content"]
       summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
-      summary = summary.gsub(/(##\s*)(.*)/, '<h2>\2</h2>') # Format headers
+      summary = summary.gsub(/(##\s*)(.*)/) { |match| "<h2>#{html_escape($2)}</h2>" } # Format headers with escaping
       summary = convert_markdown_links_to_html(summary) # Convert Markdown links to HTML
-      summary = summary.gsub(/\*\*(.*?)\*\*/, '<b>\1</b>') # Convert **text** to bold
+      summary = summary.gsub(/\*\*(.*?)\*\*/) { |match| "<b>#{html_escape($1)}</b>" } # Convert **text** to bold with proper escaping
       summary
     else
       "Summary generation failed - no valid response from AI service."
