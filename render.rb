@@ -208,7 +208,7 @@ def summarize_overall_news(feeds)
   return "No content available for summarization." if feeds.nil? || feeds.empty?
   
   begin
-    all_content = feeds.flat_map { |f| extract_feed_content(f) }.join('. ')
+    all_content = feeds.flat_map { |feed| extract_feed_content(feed) }.join('. ')
     
     return "No articles available for summarization." if all_content.empty?
     
