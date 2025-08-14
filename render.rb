@@ -59,7 +59,7 @@ def analytics_ua
   ENV['ANALYTICS_UA']
 end
 
-def render_html(overall_summary, feed_summaries)
+def render_html(overall_summary, feed_summaries, breaking_news = [])
   begin
     html = File.open('templates/index.html.erb').read
     template = ERB.new(html, trim_mode: '-')
@@ -283,6 +283,48 @@ rescue => e
   []
 end
 
+# Fetch and parse YubaNet breaking news from featured/now page
+def fetch_yubanet_breaking_news
+  begin
+    url = 'https://yubanet.com/featured/now/'
+    response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
+    
+    if response.code == 200
+      # Extract breaking news entries with timestamps
+      entries = []
+      html_content = response.body
+      
+      # Look for patterns like: <p><strong>August 13, 2025 at 2:44 PM</strong> The power outage...
+      html_content.scan(/<p><strong>([^<]+(?:AM|PM)[^<]*)<\/strong>\s*([^<]+(?:[^<]|<[^p])*?)<\/p>/m) do |timestamp, content|
+        # Clean up the content by removing HTML tags and extra whitespace
+        clean_content = content.gsub(/<[^>]+>/, '').strip
+        clean_timestamp = timestamp.strip
+        
+        # Skip very short or empty content
+        next if clean_content.length < 10
+        
+        entries << {
+          timestamp: clean_timestamp,
+          content: clean_content,
+          link: url
+        }
+      end
+      
+      puts "Fetched #{entries.size} breaking news entries from YubaNet"
+      entries
+    else
+      puts "Failed to fetch YubaNet breaking news: HTTP #{response.code}"
+      []
+    end
+  rescue HTTParty::Error => e
+    puts "HTTP error fetching YubaNet breaking news: #{e.message}"
+    []
+  rescue => e
+    puts "General error fetching YubaNet breaking news: #{e.message}"
+    []
+  end
+end
+
 def cache_summary(summary)
   return unless summary && !summary.empty?
   
@@ -333,6 +375,7 @@ puts "Analytics UA: #{ENV['ANALYTICS_UA'] ? 'configured' : 'not configured'}"
 puts ""
 
 feeds = rss_urls.map { |url| [url, feed(url)] }.to_h.compact
+breaking_news = fetch_yubanet_breaking_news
 cached_summary = load_cached_summary
 
 if cached_summary
@@ -357,7 +400,7 @@ puts "Overall Summary: #{overall_summary}"
 
 begin
   render_manifest
-  render_html(overall_summary, feed_summaries)
+  render_html(overall_summary, feed_summaries, breaking_news)
   puts "Successfully rendered HTML and manifest files."
 rescue => e
   puts "Error during rendering process: #{e.message}"
