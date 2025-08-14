@@ -59,7 +59,7 @@ def analytics_ua
   ENV['ANALYTICS_UA']
 end
 
-def render_html(overall_summary, feed_summaries)
+def render_html(overall_summary, feed_summaries, breaking_news = [], breaking_news_summary = nil)
   begin
     html = File.open('templates/index.html.erb').read
     template = ERB.new(html, trim_mode: '-')
@@ -130,6 +130,16 @@ def create_offline_feed(url)
   rss_content
 end
 
+# HTML escape function to prevent XSS attacks
+def html_escape(text)
+  return text unless text.is_a?(String)
+  text.gsub('&', '&amp;')
+      .gsub('<', '&lt;')
+      .gsub('>', '&gt;')
+      .gsub('"', '&quot;')
+      .gsub("'", '&#39;')
+end
+
 def sanitize_response(response_body)
   JSON.parse(response_body)
 rescue JSON::ParserError => e
@@ -142,11 +152,11 @@ def convert_markdown_links_to_html(text)
   # Use a more specific regex that avoids catastrophic backtracking
   # This pattern ensures we match only well-formed markdown links
   text.gsub(/\[([^\]]{1,100})\]\(([^)\s]{1,200})\)/) do |match|
-    link_text = $1
+    link_text = html_escape($1)
     url = $2
     # Additional safety: ensure URL uses safe protocols
     if url.match?(/\A(https?|ftp):\/\//)
-      "<a href=\"#{url}\">#{link_text}</a>"
+      "<a href=\"#{html_escape(url)}\">#{link_text}</a>"
     else
       match # Return original text if URL doesn't look safe
     end
@@ -199,9 +209,9 @@ def summarize_news(feed)
     if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
       summary = parsed_response["choices"].first["message"]["content"]
       summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
-      summary = summary.gsub(/(##\s*)(.*)/, '<h2>\2</h2>') # Format headers
+      summary = summary.gsub(/(##\s*)(.*)/) { |match| "<h2>#{html_escape($2)}</h2>" } # Format headers with escaping
       summary = convert_markdown_links_to_html(summary) # Convert Markdown links to HTML
-      summary = summary.gsub(/\*\*(.*?)\*\*/, '<b>\1</b>') # Convert **text** to bold
+      summary = summary.gsub(/\*\*(.*?)\*\*/) { |match| "<b>#{html_escape($1)}</b>" } # Convert **text** to bold with proper escaping
       summary
     else
       "Summary generation failed - no valid response from AI service."
@@ -257,9 +267,9 @@ def summarize_overall_news(feeds)
     if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
       summary = parsed_response["choices"].first["message"]["content"]
       summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
-      summary = summary.gsub(/(##\s*)(.*)/, '<h2>\2</h2>') # Format headers
+      summary = summary.gsub(/(##\s*)(.*)/) { |match| "<h2>#{html_escape($2)}</h2>" } # Format headers with escaping
       summary = convert_markdown_links_to_html(summary) # Convert Markdown links to HTML
-      summary = summary.gsub(/\*\*(.*?)\*\*/, '<b>\1</b>') # Convert **text** to bold
+      summary = summary.gsub(/\*\*(.*?)\*\*/) { |match| "<b>#{html_escape($1)}</b>" } # Convert **text** to bold with proper escaping
       summary
     else
       "Summary generation failed - no valid response from AI service."
@@ -281,6 +291,111 @@ def extract_feed_content(feed)
 rescue => e
   puts "Error extracting feed content: #{e.message}"
   []
+end
+
+# Fetch and parse YubaNet breaking news from featured/now page
+def fetch_yubanet_breaking_news
+  begin
+    url = 'https://yubanet.com/featured/now/'
+    response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
+    
+    if response.code == 200
+      # Extract breaking news entries with timestamps
+      entries = []
+      html_content = response.body
+      
+      # Look for patterns like: <p><strong>August 13, 2025 at 2:44 PM</strong> The power outage...
+      # Use a safer regex pattern to avoid ReDoS vulnerabilities
+      html_content.scan(/<p><strong>([^<]{1,200}(?:AM|PM)[^<]{0,50})<\/strong>\s*([^<]{1,2000})<\/p>/m) do |timestamp, content|
+        # Clean up the content by removing HTML tags and extra whitespace
+        # Use gsub with a character class to safely remove HTML tags
+        clean_content = content.gsub(/<[^>]{1,50}>/, '').strip
+        clean_timestamp = timestamp.strip
+        
+        # Skip very short or empty content
+        next if clean_content.length < 10
+        
+        entries << {
+          timestamp: clean_timestamp,
+          content: clean_content,
+          link: url
+        }
+      end
+      
+      puts "Fetched #{entries.size} breaking news entries from YubaNet"
+      entries
+    else
+      puts "Failed to fetch YubaNet breaking news: HTTP #{response.code}"
+      []
+    end
+  rescue HTTParty::Error => e
+    puts "HTTP error fetching YubaNet breaking news: #{e.message}"
+    []
+  rescue => e
+    puts "General error fetching YubaNet breaking news: #{e.message}"
+    []
+  end
+end
+
+# Summarize breaking news content using AI
+def summarize_breaking_news(breaking_news)
+  return "No breaking news available for summarization." if breaking_news.nil? || breaking_news.empty?
+  
+  begin
+    # Combine the latest breaking news entries for summarization
+    latest_entries = breaking_news.first(5) # Limit to most recent 5 entries
+    content_text = latest_entries.map { |entry| "#{entry[:timestamp]}: #{entry[:content]}" }.join('. ')
+    
+    return "No breaking news content available for summarization." if content_text.empty?
+    
+    # Skip AI summarization if no GITHUB_TOKEN is provided
+    unless ENV['GITHUB_TOKEN']
+      puts "No GITHUB_TOKEN provided, skipping breaking news AI summarization"
+      return "AI summarization unavailable - no API token configured."
+    end
+    
+    response = HTTParty.post(
+      "https://models.inference.ai.azure.com/chat/completions",
+      headers: {
+        "Content-Type" => "application/json",
+        "Authorization" => "Bearer #{ENV['GITHUB_TOKEN']}"
+      },
+      body: {
+        "messages": [
+          {
+            "role": "system",
+            "content": "Create a concise summary of the breaking news updates under 100 words. Focus on the most critical information and current developments. Identify patterns, key issues, and immediate impacts. Use urgent but clear language appropriate for breaking news. Highlight what readers need to know right now."
+          },
+          {
+            "role": "user",
+            "content": content_text[0..3072] # Limit content to fit within token limits
+          }
+        ],
+        "model": "gpt-4o-mini",
+        "temperature": 0.3, # Lower temperature for factual breaking news
+        "max_tokens": 200,
+        "top_p": 0.9
+      }.to_json
+    )
+    parsed_response = sanitize_response(response.body)
+    
+    if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
+      summary = parsed_response["choices"].first["message"]["content"]
+      summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
+      summary = summary.gsub(/(##\s*)(.*)/) { |match| "<h2>#{html_escape($2)}</h2>" } # Format headers with escaping
+      summary = convert_markdown_links_to_html(summary) # Convert Markdown links to HTML
+      summary = summary.gsub(/\*\*(.*?)\*\*/) { |match| "<b>#{html_escape($1)}</b>" } # Convert **text** to bold with proper escaping
+      summary
+    else
+      "Summary generation failed - no valid response from AI service."
+    end
+  rescue HTTParty::Error => e
+    puts "HTTP error summarizing breaking news: #{e.message}"
+    "Summary unavailable due to network error."
+  rescue => e
+    puts "General error summarizing breaking news: #{e.message}"
+    "Summary generation failed due to technical error."
+  end
 end
 
 def cache_summary(summary)
@@ -333,6 +448,8 @@ puts "Analytics UA: #{ENV['ANALYTICS_UA'] ? 'configured' : 'not configured'}"
 puts ""
 
 feeds = rss_urls.map { |url| [url, feed(url)] }.to_h.compact
+breaking_news = fetch_yubanet_breaking_news
+breaking_news_summary = summarize_breaking_news(breaking_news)
 cached_summary = load_cached_summary
 
 if cached_summary
@@ -357,7 +474,7 @@ puts "Overall Summary: #{overall_summary}"
 
 begin
   render_manifest
-  render_html(overall_summary, feed_summaries)
+  render_html(overall_summary, feed_summaries, breaking_news, breaking_news_summary)
   puts "Successfully rendered HTML and manifest files."
 rescue => e
   puts "Error during rendering process: #{e.message}"

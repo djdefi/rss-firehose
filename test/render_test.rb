@@ -48,6 +48,43 @@ class RenderTest < Minitest::Test
 
   # Additional tests to verify specific content or structure can be added here
   
+  def test_breaking_news_section_exists
+    # Test that the breaking news section is present in the output
+    assert_includes @output, "Breaking News - YubaNet Live Updates", "Breaking news section should be present in the output"
+    assert_includes @output, "yubanet.com/featured/now", "Breaking news should link to YubaNet featured/now page"
+  end
+
+  def test_breaking_news_function_exists
+    # Load the render.rb file to get access to the functions
+    load File.expand_path('../render.rb', __dir__)
+    
+    # Test that the breaking news function exists
+    assert_includes Object.private_instance_methods, :fetch_yubanet_breaking_news, "fetch_yubanet_breaking_news function should exist"
+    # Test that the breaking news summarization function exists
+    assert_includes Object.private_instance_methods, :summarize_breaking_news, "summarize_breaking_news function should exist"
+    
+    puts "✓ Breaking news functionality is available"
+  end
+
+  def test_breaking_news_structure
+    # Test that the breaking news has proper structure with timestamps
+    breaking_news_pattern = /<strong>[^<]+(?:AM|PM)[^<]*<\/strong>/
+    assert_match breaking_news_pattern, @output, "Breaking news should contain timestamped entries"
+  end
+
+  def test_breaking_news_ai_summary_structure
+    # Test that AI summary section appears when available (even if not active due to no token)
+    # The template should contain the conditional logic for AI summaries
+    assert_includes @output, "Breaking News - YubaNet Live Updates", "Breaking news section should be present"
+    
+    # Test that the template structure supports AI summaries
+    load File.expand_path('../render.rb', __dir__)
+    template_path = File.expand_path('../templates/index.html.erb', __dir__)
+    template_content = File.read(template_path)
+    assert_includes template_content, "breaking_news_summary", "Template should support breaking news AI summaries"
+    assert_includes template_content, "AI Summary", "Template should include AI Summary section"
+  end
+  
   def test_different_summary_functions_exist
     # Load the render.rb file to get access to the functions
     load File.expand_path('../render.rb', __dir__)
