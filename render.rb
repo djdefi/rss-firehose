@@ -137,9 +137,20 @@ rescue JSON::ParserError => e
   nil
 end
 
-# Optimized version of convert_markdown_links_to_html
+# Secure version of convert_markdown_links_to_html that prevents ReDoS attacks
 def convert_markdown_links_to_html(text)
-  text.gsub(/\[([^\]]+?)\]\(([^)]+?)\)/, '<a href="\2">\1</a>')
+  # Use a more specific regex that avoids catastrophic backtracking
+  # This pattern ensures we match only well-formed markdown links
+  text.gsub(/\[([^\]]{1,100})\]\(([^)\s]{1,200})\)/) do |match|
+    link_text = $1
+    url = $2
+    # Additional safety: ensure URL uses safe protocols
+    if url.match?(/\A(https?|ftp):\/\//)
+      "<a href=\"#{url}\">#{link_text}</a>"
+    else
+      match # Return original text if URL doesn't look safe
+    end
+  end
 end
 
 def summarize_news(feed)
