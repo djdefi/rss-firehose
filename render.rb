@@ -170,7 +170,7 @@ def summarize_news(feed)
         "messages": [
           {
             "role": "system",
-            "content": "Create a concise news summary under 150 words. Focus on key facts, notable events, and important context. Use neutral tone following AP style. Include relevant article links. Use bullet points for multiple topics."
+            "content": "Create a detailed feed-specific summary under 150 words. Focus on the unique aspects and specific details of this news source. Highlight what makes this feed distinctive from others. Use engaging language with varied sentence structure. Include specific quotes, names, and local context when available."
           },
           {
             "role": "user",
@@ -178,7 +178,7 @@ def summarize_news(feed)
           }
         ],
         "model": "gpt-4o-mini",
-        "temperature": 0.3,
+        "temperature": 0.6,
         "max_tokens": 300,
         "top_p": 1
       }.to_json
@@ -200,6 +200,64 @@ def summarize_news(feed)
     "Summary unavailable due to network error."
   rescue => e
     puts "General error summarizing news: #{e.message}"
+    "Summary generation failed due to technical error."
+  end
+end
+
+def summarize_overall_news(feeds)
+  return "No content available for summarization." if feeds.nil? || feeds.empty?
+  
+  begin
+    all_content = feeds.flat_map { |f| extract_feed_content(f) }.join('. ')
+    
+    return "No articles available for summarization." if all_content.empty?
+    
+    # Skip AI summarization if no GITHUB_TOKEN is provided
+    unless ENV['GITHUB_TOKEN']
+      puts "No GITHUB_TOKEN provided, skipping AI summarization"
+      return "AI summarization unavailable - no API token configured."
+    end
+    
+    response = HTTParty.post(
+      "https://models.inference.ai.azure.com/chat/completions",
+      headers: {
+        "Content-Type" => "application/json",
+        "Authorization" => "Bearer #{ENV['GITHUB_TOKEN']}"
+      },
+      body: {
+        "messages": [
+          {
+            "role": "system",
+            "content": "Analyze all the news content and create an insightful overall summary under 200 words. Identify major themes, patterns, and trends across different sources. Provide a big-picture perspective that connects related stories and highlights the most significant developments. Use analytical language and focus on implications and context rather than just listing events."
+          },
+          {
+            "role": "user",
+            "content": all_content[0..6144] # Larger content window for overall analysis
+          }
+        ],
+        "model": "gpt-4o-mini",
+        "temperature": 0.4,
+        "max_tokens": 400,
+        "top_p": 0.95
+      }.to_json
+    )
+    parsed_response = sanitize_response(response.body)
+    
+    if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
+      summary = parsed_response["choices"].first["message"]["content"]
+      summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
+      summary = summary.gsub(/(##\s*)(.*)/, '<h2>\2</h2>') # Format headers
+      summary = convert_markdown_links_to_html(summary) # Convert Markdown links to HTML
+      summary = summary.gsub(/\*\*(.*?)\*\*/, '<b>\1</b>') # Convert **text** to bold
+      summary
+    else
+      "Summary generation failed - no valid response from AI service."
+    end
+  rescue HTTParty::Error => e
+    puts "HTTP error summarizing overall news: #{e.message}"
+    "Summary unavailable due to network error."
+  rescue => e
+    puts "General error summarizing overall news: #{e.message}"
     "Summary generation failed due to technical error."
   end
 end
@@ -273,7 +331,7 @@ if cached_summary
 else
   puts "Generating summaries for #{feeds.size} feeds..."
   feed_summaries = feeds.transform_values { |feed| summarize_news(feed) }
-  overall_summary = summarize_news(feeds.values)
+  overall_summary = summarize_overall_news(feeds.values)
   
   # Only cache if we actually got a useful summary
   if overall_summary && !overall_summary.include?("unavailable") && !overall_summary.include?("failed")
