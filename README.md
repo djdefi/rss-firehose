@@ -73,12 +73,12 @@ Available environment variable options:
 RSS Firehose can generate AI-powered summaries of your news feeds using GitHub's Models service. To enable this feature:
 
 1. Set the `GITHUB_TOKEN` environment variable with your GitHub personal access token
-2. Summaries are cached for 24 hours to minimize API usage
+2. Summaries are cached for 6 hours to minimize API usage
 3. If no token is provided, the app gracefully falls back to displaying feeds without summaries
 
 #### Forcing Full Regeneration
 
-By default, AI summaries are cached for 24 hours. To force a full regeneration of the feed (skipping the cache):
+By default, AI summaries are cached for 6 hours. To force a full regeneration of the feed (skipping the cache):
 
 **GitHub Actions Workflow Dispatch:**
 1. Go to the Actions tab in your GitHub repository

@@ -426,8 +426,8 @@ def load_cached_summary
     timestamp = Time.parse(data['timestamp'])
     summary = data['summary']
     
-    # Check if cache is still valid (24 hours)
-    if Time.now.utc - timestamp < 24 * 60 * 60
+    # Check if cache is still valid (6 hours)
+    if Time.now.utc - timestamp < 6 * 60 * 60
       puts "Loaded cached summary from #{timestamp}"
       summary
     else
