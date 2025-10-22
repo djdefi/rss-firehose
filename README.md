@@ -65,6 +65,7 @@ Available environment variable options:
 "RSS_TITLE=My News"
 "RSS_DESCRIPTION=My really awesome news aggregation page"
 "GITHUB_TOKEN=your_github_token_for_ai_summaries"
+"FORCE_REGENERATE=true" # Skip cache and force full regeneration
 ```
 
 ### AI-Powered Summaries
@@ -72,8 +73,26 @@ Available environment variable options:
 RSS Firehose can generate AI-powered summaries of your news feeds using GitHub's Models service. To enable this feature:
 
 1. Set the `GITHUB_TOKEN` environment variable with your GitHub personal access token
-2. Summaries are cached for 24 hours to minimize API usage
+2. Summaries are cached for 6 hours to minimize API usage
 3. If no token is provided, the app gracefully falls back to displaying feeds without summaries
+
+#### Forcing Full Regeneration
+
+By default, AI summaries are cached for 6 hours. To force a full regeneration of the feed (skipping the cache):
+
+**GitHub Actions Workflow Dispatch:**
+1. Go to the Actions tab in your GitHub repository
+2. Select the "Auto pages deploy" workflow
+3. Click "Run workflow"
+4. Select "true" for the "Force full regeneration (skip cache)" option
+5. Click "Run workflow"
+
+**Local Development:**
+```bash
+FORCE_REGENERATE=true ruby render.rb
+```
+
+This is useful when you want to refresh the content on demand, even if the cached summary is still valid.
 
 #### Summary Variation Features
 

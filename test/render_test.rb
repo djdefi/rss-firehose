@@ -96,4 +96,31 @@ class RenderTest < Minitest::Test
     puts "✓ Both summarize_news and summarize_overall_news functions are available"
     puts "Note: Full summary variation testing requires GITHUB_TOKEN for integration validation"
   end
+
+  def test_force_regenerate_skips_cache
+    # Test that FORCE_REGENERATE environment variable skips cache
+    load File.expand_path('../render.rb', __dir__)
+    
+    # Create a mock cache file
+    FileUtils.mkdir_p('cache')
+    cache_data = {
+      'timestamp' => Time.now.utc.to_s,
+      'summary' => 'Cached test summary'
+    }.to_json
+    File.write('cache/ai_summary_cache.json', cache_data)
+    
+    # Run with FORCE_REGENERATE=true
+    output = `FORCE_REGENERATE=true ruby render.rb 2>&1`
+    
+    # Verify that cache skip message appears
+    assert_includes output, "Force regeneration enabled, skipping cache", "Force regeneration should skip cache"
+    
+    # Run without FORCE_REGENERATE to verify cache is loaded normally
+    output = `FORCE_REGENERATE=false ruby render.rb 2>&1`
+    
+    # Verify that cache is loaded
+    assert_includes output, "Loaded cached summary", "Cache should be loaded when FORCE_REGENERATE is false"
+    
+    puts "✓ Force regeneration feature works correctly"
+  end
 end

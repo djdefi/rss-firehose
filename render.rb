@@ -413,6 +413,12 @@ def cache_summary(summary)
 end
 
 def load_cached_summary
+  # Skip cache if force regeneration is requested
+  if ENV['FORCE_REGENERATE'] == 'true'
+    puts "Force regeneration enabled, skipping cache"
+    return nil
+  end
+  
   return unless File.exist?(CACHE_FILE)
   
   begin
@@ -420,8 +426,8 @@ def load_cached_summary
     timestamp = Time.parse(data['timestamp'])
     summary = data['summary']
     
-    # Check if cache is still valid (24 hours)
-    if Time.now.utc - timestamp < 24 * 60 * 60
+    # Check if cache is still valid (6 hours)
+    if Time.now.utc - timestamp < 6 * 60 * 60
       puts "Loaded cached summary from #{timestamp}"
       summary
     else

@@ -158,7 +158,7 @@ export GITHUB_TOKEN="your_github_token_for_ai_summaries"
 
 ### Performance Considerations
 - Render script fetches RSS feeds in real-time (~3 seconds total)
-- AI summaries cached for 24 hours (if GITHUB_TOKEN provided)
+- AI summaries cached for 6 hours (if GITHUB_TOKEN provided)
 - Docker builds include Ruby gem installation (~2+ minutes)
 
 ## Known Issues and Workarounds
@@ -176,7 +176,7 @@ export GITHUB_TOKEN="your_github_token_for_ai_summaries"
 ### AI Summary Limitations
 - Requires GitHub personal access token
 - Falls back to "AI summarization unavailable" without token
-- Summaries cached for 24 hours to minimize API usage
+- Summaries cached for 6 hours to minimize API usage
 
 ### Expected Error Messages (Normal Behavior)
 These error messages are expected and handled gracefully:
