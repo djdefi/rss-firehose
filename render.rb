@@ -413,6 +413,12 @@ def cache_summary(summary)
 end
 
 def load_cached_summary
+  # Skip cache if force regeneration is requested
+  if ENV['FORCE_REGENERATE'] == 'true'
+    puts "Force regeneration enabled, skipping cache"
+    return nil
+  end
+  
   return unless File.exist?(CACHE_FILE)
   
   begin
