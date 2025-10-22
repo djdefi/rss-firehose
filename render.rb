@@ -191,7 +191,7 @@ def summarize_news(feed)
         "messages": [
           {
             "role": "system",
-            "content": "Create a detailed feed-specific summary under 150 words. Focus on the unique aspects and specific details of this news source. Highlight what makes this feed distinctive from others. Use engaging language with varied sentence structure. Include specific quotes, names, and local context when available."
+            "content": "Summarize the key news stories and developments in under 150 words. Focus on the actual news events, facts, and analysis presented in the content. Write as if creating a front-page news digest. Use clear, journalistic language with varied sentence structure. Include specific names, places, dates, and substantive details when available. Avoid commenting on the news source itself."
           },
           {
             "role": "user",
@@ -249,7 +249,7 @@ def summarize_overall_news(feeds)
         "messages": [
           {
             "role": "system",
-            "content": "Analyze all the news content and create an insightful overall summary under 200 words. Identify major themes, patterns, and trends across different sources. Provide a big-picture perspective that connects related stories and highlights the most significant developments. Use analytical language and focus on implications and context rather than just listing events."
+            "content": "Create a front-page news summary under 200 words covering the major news stories and developments from all sources. Identify the most important stories, key themes, and significant trends. Write as a professional news editor would for a major newspaper's front page. Focus on what happened, who it affects, and why it matters. Use clear, authoritative journalistic language. Emphasize facts, context, and implications rather than just listing events. Avoid any commentary about news sources themselves."
           },
           {
             "role": "user",
