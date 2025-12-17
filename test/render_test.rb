@@ -123,4 +123,32 @@ class RenderTest < Minitest::Test
     
     puts "✓ Force regeneration feature works correctly"
   end
+
+  def test_manifest_pwa_settings
+    # Test that manifest.json is generated with correct PWA settings for iOS
+    require 'json'
+    
+    # Ensure manifest exists
+    assert File.exist?('public/manifest.json'), "manifest.json should be generated"
+    
+    # Parse and validate manifest content
+    manifest = JSON.parse(File.read('public/manifest.json'))
+    
+    # Check display mode is "standalone" for proper iOS PWA behavior
+    assert_equal "standalone", manifest["display"], 
+      "Display mode should be 'standalone' to prevent opening new tabs on iOS"
+    
+    # Check start_url is properly set
+    assert_equal "./", manifest["start_url"], 
+      "start_url should be './' for proper iOS PWA behavior"
+    
+    # Verify essential manifest fields exist
+    assert manifest.key?("name"), "Manifest should have a name"
+    assert manifest.key?("short_name"), "Manifest should have a short_name"
+    assert manifest.key?("icons"), "Manifest should have icons"
+    assert manifest["icons"].is_a?(Array), "Icons should be an array"
+    assert !manifest["icons"].empty?, "Icons array should not be empty"
+    
+    puts "✓ Manifest PWA settings are correctly configured for iOS"
+  end
 end
