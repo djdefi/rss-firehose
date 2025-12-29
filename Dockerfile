@@ -1,4 +1,4 @@
-FROM ruby:3-alpine
+FROM ruby:4-alpine
 
 # Install python for simple HTTP server
 RUN apk add --no-cache python3
