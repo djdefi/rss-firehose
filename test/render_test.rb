@@ -228,4 +228,29 @@ class RenderTest < Minitest::Test
     assert_includes output, "Safe &amp; Sound",
       "Ampersand in title should be escaped."
   end
+
+  # --- Concurrent feed fetching -------------------------------------------
+
+  def test_fetch_feeds_empty_returns_empty_hash
+    assert_equal({}, fetch_feeds([]))
+  end
+
+  def test_fetch_feeds_preserves_order_and_fetches_all
+    urls = %w[https://one.test https://two.test https://three.test https://four.test]
+    original = method(:feed)
+    begin
+      # Stub feed() to avoid network; sleep so concurrency actually interleaves.
+      Object.send(:define_method, :feed) do |url|
+        sleep(0.02)
+        "parsed:#{url}"
+      end
+      result = fetch_feeds(urls)
+      assert_equal urls, result.keys, "Result should preserve input URL order"
+      urls.each do |url|
+        assert_equal "parsed:#{url}", result[url], "Every URL should be fetched"
+      end
+    ensure
+      Object.send(:define_method, :feed, original.unbind)
+    end
+  end
 end

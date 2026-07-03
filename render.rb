@@ -130,6 +130,52 @@ def create_offline_feed(url)
   rss_content
 end
 
+# Fetch and parse all feeds concurrently with a small bounded thread pool.
+# Feeds are independent network I/O, so parallelizing collapses the one-shot's
+# fetch time from the sum of every request to roughly the slowest single feed.
+# Input URL order is preserved and each feed still flows through feed(), so the
+# retry/offline-placeholder behavior is unchanged — only wall-clock time drops.
+# Concurrency is bounded (default 8, override with FEED_CONCURRENCY).
+def fetch_feeds(urls)
+  return {} if urls.empty?
+
+  max_threads = (ENV['FEED_CONCURRENCY'] || '8').to_i
+  max_threads = 1 if max_threads < 1
+  worker_count = [max_threads, urls.size].min
+
+  queue = Queue.new
+  urls.each { |url| queue << url }
+  results = {}
+  mutex = Mutex.new
+
+  workers = Array.new(worker_count) do
+    Thread.new do
+      loop do
+        url = begin
+          queue.pop(true)
+        rescue ThreadError
+          break
+        end
+        parsed = begin
+          feed(url)
+        rescue StandardError => e
+          puts "Unexpected error fetching '#{url}': #{e.message}"
+          create_offline_feed(url)
+        end
+        mutex.synchronize { results[url] = parsed }
+      end
+    end
+  end
+  workers.each(&:join)
+
+  # Preserve input order and drop nils, matching the previous
+  # `rss_urls.map { ... }.to_h.compact` behavior.
+  urls.each_with_object({}) do |url, ordered|
+    value = results[url]
+    ordered[url] = value unless value.nil?
+  end
+end
+
 # HTML escape function to prevent XSS attacks
 def html_escape(text)
   return text unless text.is_a?(String)
@@ -409,7 +455,7 @@ puts "GitHub Token: #{ENV['GITHUB_TOKEN'] ? 'configured' : 'not configured (AI s
 puts "Analytics UA: #{ENV['ANALYTICS_UA'] ? 'configured' : 'not configured'}"
 puts ""
 
-feeds = rss_urls.map { |url| [url, feed(url)] }.to_h.compact
+feeds = fetch_feeds(rss_urls)
 breaking_news = fetch_yubanet_breaking_news
 breaking_news_summary = summarize_breaking_news(breaking_news)
 cached_summary = load_cached_summary
