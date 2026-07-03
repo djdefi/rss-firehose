@@ -120,7 +120,7 @@ class RenderTest < Minitest::Test
     (1..5).each { |n| stub_feed("http://s#{n}.com/feed/", body: RSS2_FIXTURE) }
 
     sites = feeds.map { |f| f[:site] }
-    assert_equal (1..5).map { |n| "http://s#{n}.com" }, sites # input order preserved
+    assert_equal (1..5).map { |n| "http://s#{n}.com" }, sites
     feeds # second reference is memoized, not refetched
     assert_equal (1..5).map { |n| "http://s#{n}.com/feed/" }, HTTP_CALLS.sort
     assert_equal 5, HTTP_CALLS.size

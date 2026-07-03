@@ -8,35 +8,71 @@
   <link rel="apple-touch-icon" href="img/icon.png">
   <link type="text/css" rel="stylesheet" href="main.css"/>
   <link rel="manifest" href="./manifest.json">
-  <title><%= title %></title>
-  <meta name="description" content="<%= description %>"/>
+  <title><%= h title %></title>
+  <meta name="description" content="<%= h description %>"/>
 </head>
 <body>
-<div>
-	<div style="padding:10px;">
-		<strong style="color:#c00;"><%= title %></strong>
-		|
-		<span><%= Time.now.strftime('%F %R %Z') -%></span>
-	</div><hr/>
-	<div class="firehose">
-		<strong>Stories</strong>
-<p>
-<% feeds.each do |feed| -%>
-
-  <h3>
-    <a href='<%= h feed[:site] %>'><%= h feed[:site] %> - <%= feed[:items].count %> items<%= feed[:error] ? ' (unavailable)' : '' %>:</a>
-  </h3>
+<div role="main">
+  <header style="padding:10px;">
+    <h1 style="color:#c00;" aria-label="Page Title"><%= h title %></h1>
+    <p aria-label="Current Date and Time"><%= Time.now.strftime('%F %R %Z') -%></p>
+  </header>
+  <hr/>
+  <% if defined?(overall_summary) && overall_summary && !overall_summary.empty? %>
+  <section class="overall-summary" style="padding:10px;" aria-labelledby="overall-summary-title">
+    <h2 id="overall-summary-title">Overall Summary</h2>
+    <p><%= overall_summary %></p>
+  </section>
+  <hr/>
+  <% end %>
+  <% if defined?(breaking_news) && breaking_news && !breaking_news.empty? %>
+  <section class="breaking-news" style="padding:10px;" aria-labelledby="breaking-news-title">
+    <h2 id="breaking-news-title" style="color:#c00;">🚨 Breaking News - YubaNet Live Updates</h2>
+    <% if defined?(breaking_news_summary) && breaking_news_summary && !breaking_news_summary.include?("unavailable") && !breaking_news_summary.include?("failed") %>
+    <div style="background-color:#fff5f5; border-left:4px solid #c00; padding:10px; margin:10px 0;">
+      <h3 style="margin-top:0; color:#c00;">AI Summary</h3>
+      <p><%= breaking_news_summary %></p>
+    </div>
+    <% end %>
+    <div>
+      <h3>
+        <a href='https://yubanet.com/featured/now/' aria-label="YubaNet Breaking News">yubanet.com/featured/now - <%= breaking_news.size %> recent updates:</a>
+      </h3>
       <ul>
-        <% feed[:items].each do |item| -%>
-      <li>
-          <a href='<%= h item[:link] %>'><%= h item[:title] %></a>
-        </li>
-    <% end -%>
+        <% breaking_news.first(10).each do |news_item| -%>
+          <li>
+            <strong><%= h news_item[:timestamp] %></strong>:
+            <a href='<%= h news_item[:link] %>' aria-label="Breaking News Item"><%= h news_item[:content] %></a>
+          </li>
+        <% end -%>
       </ul>
-
-<% end -%>
-</p>
-</div>
+    </div>
+  </section>
+  <hr/>
+  <% end %>
+  <section class="firehose" style="padding:10px;" aria-labelledby="stories-title">
+    <h2 id="stories-title">Stories</h2>
+    <div>
+      <% feeds.each do |feed| -%>
+        <h3>
+          <a href='<%= h feed[:site] %>' aria-label="Feed URL"><%= h feed[:site] %> - <%= feed[:items].count %> items<%= feed[:error] ? ' (unavailable)' : '' %>:</a>
+        </h3>
+        <% if defined?(feed_summaries) && feed_summaries[feed[:url]] && !feed_summaries[feed[:url]].empty? %>
+        <div class="feed-summary" style="padding:10px;" aria-labelledby="feed-summary-title-<%= h feed[:url] %>">
+          <h4 id="feed-summary-title-<%= h feed[:url] %>">Feed Summary</h4>
+          <p><%= feed_summaries[feed[:url]] %></p>
+        </div>
+        <% end %>
+        <ul>
+          <% feed[:items].each do |item| -%>
+            <li>
+              <a href='<%= h item[:link] %>' aria-label="Feed Item"><%= h item[:title] %></a>
+            </li>
+          <% end -%>
+        </ul>
+      <% end -%>
+    </div>
+  </section>
 </div>
 
 <% if analytics_ua %>

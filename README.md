@@ -4,7 +4,7 @@ Aggregate Local RSS feeds into a lightweight page.
 
 Example page: https://djdefi.github.io/rss-firehose/
 
-### Rendering:
+### Rendering
 
 To render the page:
 
@@ -16,9 +16,7 @@ Outputs to: `public/index.html` (and `public/manifest.json`).
 
 `render.rb` uses only the Ruby standard library (Ruby 2.6+), so there are no gems
 to install. Feeds that are unreachable or malformed are skipped and marked
-`(unavailable)` rather than breaking the whole page. Feeds are fetched
-concurrently, so the render takes about as long as the single slowest feed
-instead of the sum of them all.
+`(unavailable)` rather than breaking the whole page.
 
 Feed URLs are read from `urls.txt` (one per line; blank lines and lines starting
 with `#` are ignored) or from the `RSS_URLS` environment variable.
@@ -38,10 +36,6 @@ exits. Two things keep that one-shot fast and gentle on upstream servers:
   instead of dropping it. Caching is off unless `RSS_CACHE` is set. In CI the
   cache file is persisted between scheduled runs via `actions/cache`.
 
-The Docker image runs on Ruby 4.0. YJIT is intentionally left off: JIT warmup
-never pays off for a short-lived one-shot, so the wins come from concurrency and
-caching, not the interpreter.
-
 ### Tests
 
 ```
@@ -50,7 +44,7 @@ ruby -Itest test/render_test.rb
 
 ### Docker
 
-Served up on port 8080 with nginx:
+Build and run:
 
 ```
 docker build -t djdefi/rss-firehose .
@@ -60,30 +54,51 @@ docker run --name rss-nginx --rm -v rss-firehose:/usr/share/nginx/html:ro -p 808
 
 Re-run the `rss-firehose` container to update the page.
 
-#### Environment variables
+### Environment variables
 
-Optional settings can be configured an Docker run time, or be set in your local Ruby environment:
+Optional settings can be configured at Docker run time, or be set in your local Ruby environment:
 
+```bash
+ANALYTICS_UA=UA-XXXXX-Y
+RSS_URLS=https://url1/feed,http://url2/rss
+RSS_BACKUP_URLS=https://backup1/feed,http://backup2/rss
+RSS_TITLE=My News
+RSS_DESCRIPTION=My really awesome news aggregation page
+RSS_CONCURRENCY=8           # parallel feed fetches (default 8)
+RSS_CACHE=.cache/http.json  # path for ETag/HTTP cache (optional)
+GITHUB_TOKEN=your_github_token_for_ai_summaries
+FORCE_REGENERATE=true       # skip AI summary cache and force full regeneration
 ```
 
-## Docker:
+### AI-Powered Summaries
 
-docker run --rm -v rss-firehose:/usr/src/app/public -e "RSS_TITLE=My News" -e "RSS_URLS=https://url1/feed,http://url2/rss" -e "ANALYTICS_UA=UA-XXXXX-Y" -it djdefi/rss-firehose
+RSS Firehose can generate AI-powered summaries of your news feeds using GitHub's Models service. To enable:
 
-## Ruby:
+1. Set the `GITHUB_TOKEN` environment variable with your GitHub personal access token
+2. Summaries are cached for 6 hours to minimize API usage
+3. If no token is provided, the app gracefully falls back to displaying feeds without summaries
 
-export RSS_URLS="https://url1/feed,http://url2/rss"
-ruby render.rb
+#### Forcing Full Regeneration
 
+To skip the AI summary cache and force a fresh summary:
+
+**GitHub Actions Workflow Dispatch:**
+1. Go to the Actions tab → "Auto pages deploy" workflow → "Run workflow"
+2. Select `true` for "Force full regeneration (skip AI summary cache)"
+
+**Local:**
+```bash
+FORCE_REGENERATE=true ruby render.rb
 ```
 
-Available environment variable options:
+### Features
 
-```
-"ANALYTICS_UA=UA-XXXXX-Y"
-"RSS_URLS=https://url1/feed,http://url2/rss"
-"RSS_TITLE=My News"
-"RSS_DESCRIPTION=My really awesome news aggregation page"
-"RSS_CONCURRENCY=8"
-"RSS_CACHE=.cache/http_cache.json"
-```
+- **Pure stdlib** — zero runtime gems; `render.rb` runs on any Ruby 2.6+
+- **Concurrent fetching** — parallel feeds, wall-clock bound by slowest feed
+- **Conditional-GET caching** — ETag/304 support reduces bandwidth and upstream load
+- **Robust error handling** — bad/offline feeds render `(unavailable)`, never crash the page
+- **XSS protection** — all feed content is HTML-escaped before rendering
+- **Atom + RSS2 support** — title/link normalized across both feed types
+- **AI summarization** — optional AI-powered news summaries via GitHub Models
+- **Smart backup feeds** — fallback URLs when primary feeds are empty
+- **Responsive design** — mobile-friendly HTML with accessibility features

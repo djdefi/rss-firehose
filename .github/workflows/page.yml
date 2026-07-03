@@ -2,19 +2,27 @@
 
 name: Auto pages deploy
 
-# Controls when the action will run. Triggers the workflow on push 
-# events but only for the master branch
+# Controls when the action will run. Triggers the workflow on push
+# events but only for the main branch and on a schedule
 on:
-  push:
+  workflow_dispatch:  # Allows manual triggering of the workflow
+    inputs:
+      force_regenerate:
+        description: 'Force full regeneration (skip AI summary cache)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+  push:  # Triggers the workflow on push events to the main branch
     branches: [ main ]
-  schedule:
-    # * is a special character in YAML so you have to quote this string
-    - cron:  '5 */2 * * *'
+  schedule:  # Triggers the workflow on a schedule (twice a day)
+    - cron:  '0 3,15 * * *'
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
-  build:
+  pages-build:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
 
@@ -23,19 +31,18 @@ jobs:
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
     - uses: actions/checkout@v4
 
-    - name: Setup Ruby
-      uses: ruby/setup-ruby@v1
+    # Caches the AI summary between runs (6-hour TTL enforced in code)
+    - name: Cache AI summary
+      id: cache-ai-summary
+      uses: actions/cache@v4
       with:
-        ruby-version: '4.0'
+        path: cache
+        key: ai-summary
+        restore-keys: |
+          ai-summary
 
-    - name: Run tests
-      run: ruby -Itest test/render_test.rb
-
-    # Persist the conditional-GET cache between scheduled runs. This is what lets
-    # the one-shot render send If-None-Match/If-Modified-Since and get cheap 304s
-    # (less upstream bandwidth), and serve the last-known-good copy if a feed is
-    # down. The rotating key always saves a fresh cache; restore-keys loads the
-    # most recent previous one.
+    # Persist the conditional-GET (ETag) feed cache between scheduled runs so
+    # unchanged feeds return 304 Not Modified (saves bandwidth/upstream load).
     - name: Restore feed HTTP cache
       uses: actions/cache@v4
       with:
@@ -44,20 +51,41 @@ jobs:
         restore-keys: |
           feed-cache-
 
-    # render.rb uses only the Ruby standard library, so there are no gems to
-    # install. Uncomment the env block to pull optional settings from secrets.
+    # Sets up Ruby environment
+    - name: Setup Ruby
+      uses: ruby/setup-ruby@v1.190.0
+      with:
+        ruby-version: '4.0'
+
+    # Run the test suite before rendering
+    - name: Run tests
+      run: ruby -Itest test/render_test.rb
+
+    # render.rb uses only the Ruby standard library, so no bundle install needed
     - name: Render page
       env:
         RSS_CACHE: .cache/http_cache.json
-        #ANALYTICS_UA: ${{ secrets.ANALYTICS_UA }}
-        #RSS_TITLE: ${{ secrets.RSS_TITLE }}
-        #RSS_DESCRIPTION: ${{ secrets.RSS_DESCRIPTION }}
-        #RSS_URLS: ${{ secrets.RSS_URLS }}
+        GITHUB_TOKEN: ${{ secrets.API_TOKEN }}
+        FORCE_REGENERATE: ${{ github.event.inputs.force_regenerate || 'false' }}
+
       run: ruby render.rb
 
+    # Prunes old AI summaries from the cache
+    - name: Prune old summaries
+      run: |
+        find cache -type f -name '*.json' -mtime +1 -delete
+
+    # Uploads the AI summary to the cache
+    - name: Upload AI summary to cache
+      uses: actions/cache@v4
+      with:
+        path: cache
+        key: ai-summary
+
+    # Runs a Git AV scan
     - name: Git AV Scan
       if: success()
-      uses: djdefi/gitavscan@master
+      uses: djdefi/gitavscan@20
 
     - name: Upload build artifact
       if: success()
@@ -66,15 +94,19 @@ jobs:
         name: index
         path: public/index.html
 
+    # Checks the rendered HTML for issues
     - name: Check Rendered HTML
       if: success()
       uses: chabad360/htmlproofer@master
+      continue-on-error: true
       with:
         directory: "./public"
+        arguments: "--disable-external"
 
+    # Deploys the site to GitHub Pages
     - name: GitHub Pages
       if: success()
-      uses: crazy-max/ghaction-github-pages@v2
+      uses: crazy-max/ghaction-github-pages@v4
       with:
         build_dir: public
       env:

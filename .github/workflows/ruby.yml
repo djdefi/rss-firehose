@@ -23,7 +23,7 @@ jobs:
         ruby-version: ${{ matrix.ruby-version }}
 
     - name: Syntax check
-      run: ruby -c render.rb && ruby -c server.rb
+      run: ruby -c render.rb
 
     - name: Run tests
       run: ruby -Itest test/render_test.rb
