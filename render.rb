@@ -59,7 +59,7 @@ def analytics_ua
   ENV['ANALYTICS_UA']
 end
 
-def render_html(overall_summary, feed_summaries, breaking_news = [], breaking_news_summary = nil)
+def render_html(feeds, overall_summary, feed_summaries, breaking_news = [], breaking_news_summary = nil)
   begin
     html = File.open('templates/index.html.erb').read
     template = ERB.new(html, trim_mode: '-')
@@ -443,6 +443,10 @@ def load_cached_summary
   end
 end
 
+# Only run the full render (config logging, feed fetching, AI summaries, file
+# output) when executed directly. Requiring/loading this file (e.g. from tests)
+# then has no side effects and performs no network I/O.
+if __FILE__ == $PROGRAM_NAME
 # Validate configuration and log startup info
 puts "RSS Firehose starting..."
 puts "Title: #{title}"
@@ -480,9 +484,10 @@ puts "Overall Summary: #{overall_summary}"
 
 begin
   render_manifest
-  render_html(overall_summary, feed_summaries, breaking_news, breaking_news_summary)
+  render_html(feeds, overall_summary, feed_summaries, breaking_news, breaking_news_summary)
   puts "Successfully rendered HTML and manifest files."
 rescue => e
   puts "Error during rendering process: #{e.message}"
   puts "Backtrace: #{e.backtrace.first(5).join("\n")}"
+end
 end

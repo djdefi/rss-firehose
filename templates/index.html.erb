@@ -53,9 +53,9 @@
   <section class="firehose" style="padding:10px;" aria-labelledby="stories-title">
     <h2 id="stories-title">Stories</h2>
     <div>
-      <% rss_urls.each do |url| -%>
+      <% feeds.each do |url, parsed| -%>
         <h3>
-          <a href='<%= url.gsub '/feed/', '' %>' aria-label="Feed URL"><%= url.gsub '/feed/', '' %> - <%= feed(url).items.count %> items:</a>
+          <a href='<%= url.gsub '/feed/', '' %>' aria-label="Feed URL"><%= url.gsub '/feed/', '' %> - <%= parsed.items.count %> items:</a>
         </h3>
         <% if feed_summaries[url] && !feed_summaries[url].empty? %>
         <div class="feed-summary" style="padding:10px;" aria-labelledby="feed-summary-title-<%= url %>">
@@ -64,7 +64,7 @@
         </div>
         <% end %>
         <ul>
-          <% feed(url).items.each do |item| -%>
+          <% parsed.items.each do |item| -%>
             <li>
               <a href='<%= item.link %>' aria-label="Feed Item"><%= item.title %></a>
             </li>
