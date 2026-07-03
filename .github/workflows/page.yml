@@ -31,15 +31,19 @@ jobs:
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
     - uses: actions/checkout@v4
 
-    # Caches the AI summary
-    - name: Cache AI summary
+    # Restores the most recent AI summary cache. A per-run key with a shared
+    # restore prefix is used so the cache actually refreshes: exact-key restore
+    # misses (unique per run) and falls back to the newest `ai-summary-` entry,
+    # while the save step below always writes a new key. (A single static key is
+    # immutable once written and would freeze the cache forever.)
+    - name: Restore AI summary cache
       id: cache-ai-summary
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: cache
-        key: ai-summary
+        key: ai-summary-${{ github.run_id }}
         restore-keys: |
-          ai-summary
+          ai-summary-
 
     # Sets up Ruby environment
     - name: Setup Ruby
@@ -54,17 +58,14 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.API_TOKEN }}
         FORCE_REGENERATE: ${{ github.event.inputs.force_regenerate || 'false' }}
 
-    # Prunes old summaries from the cache
-    - name: Prune old summaries
-      run: |
-        find cache -type f -name '*.json' -mtime +1 -delete
-
-    # Uploads the AI summary to the cache
-    - name: Upload AI summary to cache
-      uses: actions/cache@v4
+    # Saves the AI summary cache under a fresh per-run key so it always updates.
+    # Old entries are evicted by GitHub's cache retention policy.
+    - name: Save AI summary cache
+      if: always()
+      uses: actions/cache/save@v4
       with:
         path: cache
-        key: ai-summary
+        key: ai-summary-${{ github.run_id }}
 
     # Runs a Git AV scan
     - name: Git AV Scan
