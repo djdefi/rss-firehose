@@ -140,6 +140,31 @@ def html_escape(text)
       .gsub("'", '&#39;')
 end
 
+# Normalize an item title across feed dialects: RSS2 exposes a String, Atom an
+# object with #content. Always returns a String so callers can safely escape it.
+def item_title(item)
+  raw = item.title
+  raw.respond_to?(:content) ? raw.content.to_s : raw.to_s
+end
+
+# Normalize an item link across feed dialects: RSS2 exposes a String, Atom an
+# object with #href. Always returns a String.
+def item_link(item)
+  raw = item.link
+  return raw.href.to_s if raw.respond_to?(:href)
+  return raw.content.to_s if raw.respond_to?(:content)
+
+  raw.to_s
+end
+
+# Allow only safe URL schemes in generated hrefs so a malicious feed can't inject
+# javascript:/data:/vbscript: links. Absolute, protocol-relative, root-relative
+# and anchor links pass through; anything else collapses to '#'.
+def safe_url(url)
+  str = url.to_s.strip
+  str.match?(%r{\A(?:https?://|ftp://|mailto:|//|/|\#)}i) ? str : '#'
+end
+
 def sanitize_response(response_body)
   JSON.parse(response_body)
 rescue JSON::ParserError => e
@@ -287,7 +312,7 @@ end
 def extract_feed_content(feed)
   return [] if feed.nil? || !feed.respond_to?(:items) || feed.items.nil?
   
-  feed.items.map { |item| "#{item.title} (#{item.link})" }.compact
+  feed.items.map { |item| "#{item_title(item)} (#{item_link(item)})" }.compact
 rescue => e
   puts "Error extracting feed content: #{e.message}"
   []
