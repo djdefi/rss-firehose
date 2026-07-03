@@ -12,19 +12,19 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Set up Ruby
-      uses: ruby/setup-ruby@v1.190.0
+      uses: ruby/setup-ruby@v1.316.0
       with:
-        ruby-version: 3.1.1
+        ruby-version: .ruby-version
         bundler-cache: true
     
     - name: Install development dependencies
-      run: bundle install --with development
+      run: bundle install
 
     - name: Run render_test.rb
       run: bundle exec ruby test/render_test.rb
 
     - name: Install Code Scanning integration
-      run: bundle add code-scanning-rubocop --version 0.3.0 --skip-install
+      run: bundle add code-scanning-rubocop --version 0.6.1 --skip-install
 
     - name: Install dependencies
       run: bundle install
