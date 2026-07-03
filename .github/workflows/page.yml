@@ -29,7 +29,7 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     # Restores the most recent AI summary cache. A per-run key with a shared
     # restore prefix is used so the cache actually refreshes: exact-key restore
@@ -38,7 +38,7 @@ jobs:
     # immutable once written and would freeze the cache forever.)
     - name: Restore AI summary cache
       id: cache-ai-summary
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: cache
         key: ai-summary-${{ github.run_id }}
@@ -62,7 +62,7 @@ jobs:
     # Old entries are evicted by GitHub's cache retention policy.
     - name: Save AI summary cache
       if: always()
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v5
       with:
         path: cache
         key: ai-summary-${{ github.run_id }}
@@ -84,7 +84,7 @@ jobs:
     # Deploys the site to GitHub Pages
     - name: GitHub Pages
       if: success()
-      uses: crazy-max/ghaction-github-pages@v4
+      uses: crazy-max/ghaction-github-pages@v5
       with:
         build_dir: public
       env:
