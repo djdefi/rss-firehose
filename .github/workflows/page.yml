@@ -26,15 +26,29 @@ jobs:
     - name: Setup Ruby
       uses: ruby/setup-ruby@v1
       with:
-        ruby-version: '3.3'
+        ruby-version: '4.0'
 
     - name: Run tests
       run: ruby -Itest test/render_test.rb
 
+    # Persist the conditional-GET cache between scheduled runs. This is what lets
+    # the one-shot render send If-None-Match/If-Modified-Since and get cheap 304s
+    # (less upstream bandwidth), and serve the last-known-good copy if a feed is
+    # down. The rotating key always saves a fresh cache; restore-keys loads the
+    # most recent previous one.
+    - name: Restore feed HTTP cache
+      uses: actions/cache@v4
+      with:
+        path: .cache
+        key: feed-cache-${{ github.run_id }}
+        restore-keys: |
+          feed-cache-
+
     # render.rb uses only the Ruby standard library, so there are no gems to
     # install. Uncomment the env block to pull optional settings from secrets.
     - name: Render page
-      #env:
+      env:
+        RSS_CACHE: .cache/http_cache.json
         #ANALYTICS_UA: ${{ secrets.ANALYTICS_UA }}
         #RSS_TITLE: ${{ secrets.RSS_TITLE }}
         #RSS_DESCRIPTION: ${{ secrets.RSS_DESCRIPTION }}

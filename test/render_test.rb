@@ -1,16 +1,29 @@
 require 'minitest/autorun'
 require 'tempfile'
+require 'tmpdir'
+require 'fileutils'
 
 require_relative '../render'
 
-# Test seam: replace the network layer with an in-memory fixture table so tests
-# are fully offline and can assert exactly how many HTTP requests happen.
+# Test seam: replace the network layer (http_fetch) with an in-memory fixture
+# table so tests are fully offline. FIXTURES maps a URL to a hash of:
+#   body:          response body to parse (implies a 200)
+#   etag:          validator; a cached request with a matching etag yields 304
+#   last_modified: validator (informational here)
+#   status:        force :error to simulate an unreachable feed
 HTTP_CALLS = []
 FIXTURES = {}
 
-def http_get(url)
+def http_fetch(url, cached = nil, *)
   HTTP_CALLS << url
-  FIXTURES[url]
+  fixture = FIXTURES[url]
+  return FetchResult.new(:error, nil, nil, nil) if fixture.nil? || fixture[:status] == :error
+
+  if cached && fixture[:etag] && cached['etag'] == fixture[:etag]
+    return FetchResult.new(:not_modified, nil, fixture[:etag], fixture[:last_modified])
+  end
+
+  FetchResult.new(:ok, fixture[:body], fixture[:etag], fixture[:last_modified])
 end
 
 RSS2_FIXTURE = <<~XML
@@ -29,14 +42,20 @@ ATOM_FIXTURE = <<~XML
 XML
 
 class RenderTest < Minitest::Test
+  ENV_KEYS = %w[RSS_URLS RSS_TITLE RSS_DESCRIPTION ANALYTICS_UA RSS_CACHE RSS_CONCURRENCY].freeze
+
   def setup
     HTTP_CALLS.clear
     FIXTURES.clear
-    %w[RSS_URLS RSS_TITLE RSS_DESCRIPTION ANALYTICS_UA].each { |k| ENV.delete(k) }
+    @feeds = nil
+    @tmpdir = Dir.mktmpdir
+    @cache_file = File.join(@tmpdir, 'cache.json')
+    ENV_KEYS.each { |k| ENV.delete(k) }
   end
 
   def teardown
-    %w[RSS_URLS RSS_TITLE RSS_DESCRIPTION ANALYTICS_UA].each { |k| ENV.delete(k) }
+    ENV_KEYS.each { |k| ENV.delete(k) }
+    FileUtils.remove_entry(@tmpdir) if @tmpdir && Dir.exist?(@tmpdir)
   end
 
   # --- configuration helpers ------------------------------------------------
@@ -64,8 +83,7 @@ class RenderTest < Minitest::Test
   # --- fetching / parsing ---------------------------------------------------
 
   def test_rss2_feed_is_parsed_and_normalized
-    ENV['RSS_URLS'] = 'http://ex.com/feed/'
-    FIXTURES['http://ex.com/feed/'] = RSS2_FIXTURE
+    stub_feed('http://ex.com/feed/', body: RSS2_FIXTURE)
     feed = feeds.first
     assert_nil feed[:error]
     assert_equal 'http://ex.com', feed[:site]
@@ -75,43 +93,82 @@ class RenderTest < Minitest::Test
   end
 
   def test_atom_feed_title_and_link_are_normalized
-    ENV['RSS_URLS'] = 'http://ex.com/atom'
-    FIXTURES['http://ex.com/atom'] = ATOM_FIXTURE
+    stub_feed('http://ex.com/atom', body: ATOM_FIXTURE)
     item = feeds.first[:items].first
     assert_equal 'Atom Item', item[:title]
     assert_equal 'http://ex.com/a1', item[:link]
   end
 
-  def test_each_feed_is_fetched_exactly_once_even_when_referenced_repeatedly
-    ENV['RSS_URLS'] = 'http://a.com/feed/,http://b.com/feed/'
-    FIXTURES['http://a.com/feed/'] = RSS2_FIXTURE
-    FIXTURES['http://b.com/feed/'] = ATOM_FIXTURE
-    feeds
-    feeds # second reference must hit the memoized data, not the network
-    assert_equal ['http://a.com/feed/', 'http://b.com/feed/'], HTTP_CALLS
-  end
-
   def test_unreachable_feed_does_not_raise
-    ENV['RSS_URLS'] = 'http://down.com/feed/'
-    FIXTURES['http://down.com/feed/'] = nil # simulate network failure
+    stub_feed('http://down.com/feed/', status: :error)
     feed = feeds.first
     assert_equal 'unavailable', feed[:error]
     assert_empty feed[:items]
   end
 
   def test_garbage_body_is_treated_as_unavailable
-    ENV['RSS_URLS'] = 'http://junk.com/feed/'
-    FIXTURES['http://junk.com/feed/'] = '<html><body>not a feed</body></html>'
+    stub_feed('http://junk.com/feed/', body: '<html><body>not a feed</body></html>')
     feed = feeds.first
     assert_equal 'unavailable', feed[:error]
     assert_empty feed[:items]
   end
 
+  # --- concurrency ----------------------------------------------------------
+
+  def test_feeds_are_fetched_once_each_and_kept_in_order
+    ENV['RSS_URLS'] = (1..5).map { |n| "http://s#{n}.com/feed/" }.join(',')
+    (1..5).each { |n| stub_feed("http://s#{n}.com/feed/", body: RSS2_FIXTURE) }
+
+    sites = feeds.map { |f| f[:site] }
+    assert_equal (1..5).map { |n| "http://s#{n}.com" }, sites # input order preserved
+    feeds # second reference is memoized, not refetched
+    assert_equal (1..5).map { |n| "http://s#{n}.com/feed/" }, HTTP_CALLS.sort
+    assert_equal 5, HTTP_CALLS.size
+  end
+
+  # --- conditional GET / caching --------------------------------------------
+
+  def test_conditional_request_reuses_cache_on_304
+    url = 'http://ex.com/feed/'
+    ENV['RSS_URLS'] = url
+    ENV['RSS_CACHE'] = @cache_file
+    stub_feed(url, body: RSS2_FIXTURE, etag: 'v1')
+
+    feeds # first run: 200 OK, writes cache with etag v1
+    assert File.exist?(@cache_file), 'cache file should be written'
+
+    @feeds = nil
+    HTTP_CALLS.clear
+    feed = feeds.first # second run: cached etag matches -> 304 -> served from cache
+    assert_equal [url], HTTP_CALLS
+    assert_nil feed[:error]
+    assert_equal 2, feed[:items].count
+  end
+
+  def test_serves_stale_cache_when_feed_later_fails
+    url = 'http://ex.com/feed/'
+    ENV['RSS_URLS'] = url
+    ENV['RSS_CACHE'] = @cache_file
+    stub_feed(url, body: RSS2_FIXTURE, etag: 'v1')
+    feeds # populate cache
+
+    @feeds = nil
+    stub_feed(url, status: :error) # feed goes down
+    feed = feeds.first
+    assert_nil feed[:error], 'should serve stale copy rather than mark unavailable'
+    assert_equal 2, feed[:items].count
+  end
+
+  def test_no_cache_file_written_when_caching_disabled
+    stub_feed('http://ex.com/feed/', body: RSS2_FIXTURE)
+    feeds
+    refute File.exist?(@cache_file)
+  end
+
   # --- rendering / escaping -------------------------------------------------
 
   def test_rendered_html_escapes_untrusted_feed_content
-    ENV['RSS_URLS'] = 'http://ex.com/feed/'
-    FIXTURES['http://ex.com/feed/'] = RSS2_FIXTURE
+    stub_feed('http://ex.com/feed/', body: RSS2_FIXTURE)
     html = render_index_to_string
     refute_includes html, '<script>alert(1)</script>'
     assert_includes html, '&lt;script&gt;alert(1)&lt;/script&gt;'
@@ -119,12 +176,16 @@ class RenderTest < Minitest::Test
   end
 
   def test_rendered_html_marks_unavailable_feeds
-    ENV['RSS_URLS'] = 'http://down.com/feed/'
-    FIXTURES['http://down.com/feed/'] = nil
+    stub_feed('http://down.com/feed/', status: :error)
     assert_includes render_index_to_string, '(unavailable)'
   end
 
   private
+
+  def stub_feed(url, **attrs)
+    ENV['RSS_URLS'] ||= url
+    FIXTURES[url] = attrs
+  end
 
   def render_index_to_string
     Tempfile.create(['index', '.html']) do |file|

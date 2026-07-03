@@ -16,10 +16,31 @@ Outputs to: `public/index.html` (and `public/manifest.json`).
 
 `render.rb` uses only the Ruby standard library (Ruby 2.6+), so there are no gems
 to install. Feeds that are unreachable or malformed are skipped and marked
-`(unavailable)` rather than breaking the whole page.
+`(unavailable)` rather than breaking the whole page. Feeds are fetched
+concurrently, so the render takes about as long as the single slowest feed
+instead of the sum of them all.
 
 Feed URLs are read from `urls.txt` (one per line; blank lines and lines starting
 with `#` are ignored) or from the `RSS_URLS` environment variable.
+
+### Performance & caching
+
+The renderer is a one-shot: it fetches every feed, writes the static page, and
+exits. Two things keep that one-shot fast and gentle on upstream servers:
+
+- **Concurrent fetching** — feeds are downloaded in parallel (default 8 at a
+  time, tune with `RSS_CONCURRENCY`). Wall-clock time is bound by the slowest
+  feed rather than the total.
+- **Conditional-GET caching** — set `RSS_CACHE` to a file path to persist an
+  HTTP cache. Subsequent runs send `If-None-Match` / `If-Modified-Since`, so
+  unchanged feeds return a cheap `304 Not Modified` (no body transferred, no
+  re-parse). If a feed is temporarily down, the last-known-good copy is served
+  instead of dropping it. Caching is off unless `RSS_CACHE` is set. In CI the
+  cache file is persisted between scheduled runs via `actions/cache`.
+
+The Docker image runs on Ruby 4.0. YJIT is intentionally left off: JIT warmup
+never pays off for a short-lived one-shot, so the wins come from concurrency and
+caching, not the interpreter.
 
 ### Tests
 
@@ -63,4 +84,6 @@ Available environment variable options:
 "RSS_URLS=https://url1/feed,http://url2/rss"
 "RSS_TITLE=My News"
 "RSS_DESCRIPTION=My really awesome news aggregation page"
+"RSS_CONCURRENCY=8"
+"RSS_CACHE=.cache/http_cache.json"
 ```
