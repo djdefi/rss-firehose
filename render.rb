@@ -188,124 +188,94 @@ def convert_markdown_links_to_html(text)
   end
 end
 
+# Shared GitHub Models endpoint/model used for all AI summaries.
+AI_SUMMARY_ENDPOINT = "https://models.inference.ai.azure.com/chat/completions"
+AI_SUMMARY_MODEL = "gpt-4o-mini"
+
+# Apply the shared markdown-ish -> HTML formatting used by every summary:
+# newlines to <br/>, "## x" to escaped <h2>, markdown links, and **bold**.
+def format_summary(text)
+  summary = text.gsub("\n", "<br/>")
+  summary = summary.gsub(/(##\s*)(.*)/) { "<h2>#{html_escape($2)}</h2>" }
+  summary = convert_markdown_links_to_html(summary)
+  summary.gsub(/\*\*(.*?)\*\*/) { "<b>#{html_escape($1)}</b>" }
+end
+
+# Request a GitHub Models chat completion for a summary. Centralizes the token
+# guard, HTTP call, response parsing/formatting and error handling shared by
+# every summarize_* method. `context` only affects log wording.
+def generate_ai_summary(system_prompt, user_content, context:, temperature:, max_tokens:, top_p:)
+  unless ENV['GITHUB_TOKEN']
+    puts "No GITHUB_TOKEN provided, skipping AI summarization"
+    return "AI summarization unavailable - no API token configured."
+  end
+
+  response = HTTParty.post(
+    AI_SUMMARY_ENDPOINT,
+    headers: {
+      "Content-Type" => "application/json",
+      "Authorization" => "Bearer #{ENV['GITHUB_TOKEN']}"
+    },
+    body: {
+      "messages": [
+        { "role": "system", "content": system_prompt },
+        { "role": "user", "content": user_content }
+      ],
+      "model": AI_SUMMARY_MODEL,
+      "temperature": temperature,
+      "max_tokens": max_tokens,
+      "top_p": top_p
+    }.to_json
+  )
+  parsed_response = sanitize_response(response.body)
+
+  if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
+    format_summary(parsed_response["choices"].first["message"]["content"])
+  else
+    "Summary generation failed - no valid response from AI service."
+  end
+rescue HTTParty::Error => e
+  puts "HTTP error summarizing #{context}: #{e.message}"
+  "Summary unavailable due to network error."
+rescue => e
+  puts "General error summarizing #{context}: #{e.message}"
+  "Summary generation failed due to technical error."
+end
+
 def summarize_news(feed)
   return "No content available for summarization." if feed.nil?
-  
-  begin
-    news_content = if feed.is_a?(Array)
-                     feed.flat_map { |f| extract_feed_content(f) }.join('. ')
-                   else
-                     extract_feed_content(feed).join('. ')
-                   end
-    
-    return "No articles available for summarization." if news_content.empty?
-    
-    # Skip AI summarization if no GITHUB_TOKEN is provided
-    unless ENV['GITHUB_TOKEN']
-      puts "No GITHUB_TOKEN provided, skipping AI summarization"
-      return "AI summarization unavailable - no API token configured."
-    end
-    
-    response = HTTParty.post(
-      "https://models.inference.ai.azure.com/chat/completions",
-      headers: {
-        "Content-Type" => "application/json",
-        "Authorization" => "Bearer #{ENV['GITHUB_TOKEN']}"
-      },
-      body: {
-        "messages": [
-          {
-            "role": "system",
-            "content": "Summarize the key news stories and developments in under 150 words. Focus on the actual news events, facts, and analysis presented in the content. Write as if creating a front-page news digest. Use clear, journalistic language with varied sentence structure. Include specific names, places, dates, and substantive details when available. Avoid commenting on the news source itself."
-          },
-          {
-            "role": "user",
-            "content": news_content[0..4096] # Adjust to fit within token limits
-          }
-        ],
-        "model": "gpt-4o-mini",
-        "temperature": 0.6,
-        "max_tokens": 300,
-        "top_p": 1
-      }.to_json
-    )
-    parsed_response = sanitize_response(response.body)
-    
-    if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
-      summary = parsed_response["choices"].first["message"]["content"]
-      summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
-      summary = summary.gsub(/(##\s*)(.*)/) { |match| "<h2>#{html_escape($2)}</h2>" } # Format headers with escaping
-      summary = convert_markdown_links_to_html(summary) # Convert Markdown links to HTML
-      summary = summary.gsub(/\*\*(.*?)\*\*/) { |match| "<b>#{html_escape($1)}</b>" } # Convert **text** to bold with proper escaping
-      summary
-    else
-      "Summary generation failed - no valid response from AI service."
-    end
-  rescue HTTParty::Error => e
-    puts "HTTP error summarizing news: #{e.message}"
-    "Summary unavailable due to network error."
-  rescue => e
-    puts "General error summarizing news: #{e.message}"
-    "Summary generation failed due to technical error."
-  end
+
+  news_content = if feed.is_a?(Array)
+                   feed.flat_map { |f| extract_feed_content(f) }.join('. ')
+                 else
+                   extract_feed_content(feed).join('. ')
+                 end
+  return "No articles available for summarization." if news_content.empty?
+
+  generate_ai_summary(
+    "Summarize the key news stories and developments in under 150 words. Focus on the actual news events, facts, and analysis presented in the content. Write as if creating a front-page news digest. Use clear, journalistic language with varied sentence structure. Include specific names, places, dates, and substantive details when available. Avoid commenting on the news source itself.",
+    news_content[0..4096],
+    context: "news",
+    temperature: 0.6,
+    max_tokens: 300,
+    top_p: 1
+  )
 end
 
 def summarize_overall_news(feeds)
   return "No content available for summarization." if feeds.nil? || feeds.empty?
-  
-  begin
-    all_content = feeds.flat_map { |feed| extract_feed_content(feed) }.join('. ')
-    
-    return "No articles available for summarization." if all_content.empty?
-    
-    # Skip AI summarization if no GITHUB_TOKEN is provided
-    unless ENV['GITHUB_TOKEN']
-      puts "No GITHUB_TOKEN provided, skipping AI summarization"
-      return "AI summarization unavailable - no API token configured."
-    end
-    
-    response = HTTParty.post(
-      "https://models.inference.ai.azure.com/chat/completions",
-      headers: {
-        "Content-Type" => "application/json",
-        "Authorization" => "Bearer #{ENV['GITHUB_TOKEN']}"
-      },
-      body: {
-        "messages": [
-          {
-            "role": "system",
-            "content": "Create a front-page news summary under 200 words covering the major news stories and developments from all sources. Identify the most important stories, key themes, and significant trends. Write as a professional news editor would for a major newspaper's front page. Focus on what happened, who it affects, and why it matters. Use clear, authoritative journalistic language. Emphasize facts, context, and implications rather than just listing events. Avoid any commentary about news sources themselves."
-          },
-          {
-            "role": "user",
-            "content": all_content[0..6144] # Larger content window for overall analysis
-          }
-        ],
-        "model": "gpt-4o-mini",
-        "temperature": 0.4,
-        "max_tokens": 400,
-        "top_p": 0.95
-      }.to_json
-    )
-    parsed_response = sanitize_response(response.body)
-    
-    if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
-      summary = parsed_response["choices"].first["message"]["content"]
-      summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
-      summary = summary.gsub(/(##\s*)(.*)/) { |match| "<h2>#{html_escape($2)}</h2>" } # Format headers with escaping
-      summary = convert_markdown_links_to_html(summary) # Convert Markdown links to HTML
-      summary = summary.gsub(/\*\*(.*?)\*\*/) { |match| "<b>#{html_escape($1)}</b>" } # Convert **text** to bold with proper escaping
-      summary
-    else
-      "Summary generation failed - no valid response from AI service."
-    end
-  rescue HTTParty::Error => e
-    puts "HTTP error summarizing overall news: #{e.message}"
-    "Summary unavailable due to network error."
-  rescue => e
-    puts "General error summarizing overall news: #{e.message}"
-    "Summary generation failed due to technical error."
-  end
+
+  all_content = feeds.flat_map { |feed| extract_feed_content(feed) }.join('. ')
+  return "No articles available for summarization." if all_content.empty?
+
+  generate_ai_summary(
+    "Create a front-page news summary under 200 words covering the major news stories and developments from all sources. Identify the most important stories, key themes, and significant trends. Write as a professional news editor would for a major newspaper's front page. Focus on what happened, who it affects, and why it matters. Use clear, authoritative journalistic language. Emphasize facts, context, and implications rather than just listing events. Avoid any commentary about news sources themselves.",
+    all_content[0..6144],
+    context: "overall news",
+    temperature: 0.4,
+    max_tokens: 400,
+    top_p: 0.95
+  )
 end
 
 # Extract content from a feed, handling offline feeds gracefully
@@ -365,62 +335,19 @@ end
 # Summarize breaking news content using AI
 def summarize_breaking_news(breaking_news)
   return "No breaking news available for summarization." if breaking_news.nil? || breaking_news.empty?
-  
-  begin
-    # Combine the latest breaking news entries for summarization
-    latest_entries = breaking_news.first(5) # Limit to most recent 5 entries
-    content_text = latest_entries.map { |entry| "#{entry[:timestamp]}: #{entry[:content]}" }.join('. ')
-    
-    return "No breaking news content available for summarization." if content_text.empty?
-    
-    # Skip AI summarization if no GITHUB_TOKEN is provided
-    unless ENV['GITHUB_TOKEN']
-      puts "No GITHUB_TOKEN provided, skipping breaking news AI summarization"
-      return "AI summarization unavailable - no API token configured."
-    end
-    
-    response = HTTParty.post(
-      "https://models.inference.ai.azure.com/chat/completions",
-      headers: {
-        "Content-Type" => "application/json",
-        "Authorization" => "Bearer #{ENV['GITHUB_TOKEN']}"
-      },
-      body: {
-        "messages": [
-          {
-            "role": "system",
-            "content": "Create a concise summary of the breaking news updates under 100 words. Focus on the most critical information and current developments. Identify patterns, key issues, and immediate impacts. Use urgent but clear language appropriate for breaking news. Highlight what readers need to know right now."
-          },
-          {
-            "role": "user",
-            "content": content_text[0..3072] # Limit content to fit within token limits
-          }
-        ],
-        "model": "gpt-4o-mini",
-        "temperature": 0.3, # Lower temperature for factual breaking news
-        "max_tokens": 200,
-        "top_p": 0.9
-      }.to_json
-    )
-    parsed_response = sanitize_response(response.body)
-    
-    if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
-      summary = parsed_response["choices"].first["message"]["content"]
-      summary = summary.gsub("\n", "<br/>") # Format for HTML line breaks
-      summary = summary.gsub(/(##\s*)(.*)/) { |match| "<h2>#{html_escape($2)}</h2>" } # Format headers with escaping
-      summary = convert_markdown_links_to_html(summary) # Convert Markdown links to HTML
-      summary = summary.gsub(/\*\*(.*?)\*\*/) { |match| "<b>#{html_escape($1)}</b>" } # Convert **text** to bold with proper escaping
-      summary
-    else
-      "Summary generation failed - no valid response from AI service."
-    end
-  rescue HTTParty::Error => e
-    puts "HTTP error summarizing breaking news: #{e.message}"
-    "Summary unavailable due to network error."
-  rescue => e
-    puts "General error summarizing breaking news: #{e.message}"
-    "Summary generation failed due to technical error."
-  end
+
+  latest_entries = breaking_news.first(5)
+  content_text = latest_entries.map { |entry| "#{entry[:timestamp]}: #{entry[:content]}" }.join('. ')
+  return "No breaking news content available for summarization." if content_text.empty?
+
+  generate_ai_summary(
+    "Create a concise summary of the breaking news updates under 100 words. Focus on the most critical information and current developments. Identify patterns, key issues, and immediate impacts. Use urgent but clear language appropriate for breaking news. Highlight what readers need to know right now.",
+    content_text[0..3072],
+    context: "breaking news",
+    temperature: 0.3,
+    max_tokens: 200,
+    top_p: 0.9
+  )
 end
 
 def cache_summary(summary)
