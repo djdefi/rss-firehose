@@ -1,0 +1,11 @@
+# Keep the build context (and image) small. render.rb needs render.rb,
+# templates/, urls.txt and public/ — nothing else here.
+.git
+.github
+.gitignore
+.dockerignore
+**/.DS_Store
+test
+*.md
+LICENSE
+renovate.json

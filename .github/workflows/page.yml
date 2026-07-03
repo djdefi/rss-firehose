@@ -21,25 +21,25 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
     - name: Setup Ruby
-      uses: actions/setup-ruby@v1
+      uses: ruby/setup-ruby@v1
       with:
-        ruby-version: '2.6' # Version range or exact version of a Ruby version to use, using semvers version range syntax.
-    
-    # Installs gem deps
-    # Renders the page
-    - name: Install gems & render page
-      #env: 
+        ruby-version: '3.3'
+
+    - name: Run tests
+      run: ruby -Itest test/render_test.rb
+
+    # render.rb uses only the Ruby standard library, so there are no gems to
+    # install. Uncomment the env block to pull optional settings from secrets.
+    - name: Render page
+      #env:
         #ANALYTICS_UA: ${{ secrets.ANALYTICS_UA }}
         #RSS_TITLE: ${{ secrets.RSS_TITLE }}
-        #RSS_DESCRIPTION: ${{ secrets.RSS_DESCRIPTION }} 
+        #RSS_DESCRIPTION: ${{ secrets.RSS_DESCRIPTION }}
         #RSS_URLS: ${{ secrets.RSS_URLS }}
-      run: |
-        gem install bundler
-        bundle install --without=standalone,development
-        ruby render.rb
+      run: ruby render.rb
 
     - name: Git AV Scan
       if: success()
@@ -47,7 +47,7 @@ jobs:
 
     - name: Upload build artifact
       if: success()
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: index
         path: public/index.html

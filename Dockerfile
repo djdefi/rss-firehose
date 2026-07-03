@@ -1,8 +1,8 @@
-FROM ruby:2.6.0-alpine3.7
-WORKDIR /usr/src/app
+# Renders the static site. render.rb uses only the Ruby standard library, so no
+# gem install is needed and the image stays tiny.
+FROM ruby:3.3-alpine
 
-COPY Gemfile Gemfile.lock ./
-RUN bundle install
+WORKDIR /usr/src/app
 
 COPY . .
 

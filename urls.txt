@@ -1,3 +1,4 @@
+# One feed URL per line. Blank lines and lines starting with '#' are ignored.
 https://yubanet.com/feed/
-http://www.theunion.com/feed/
-https://www.mynevadacounty.com/RSSFeed.aspx?ModID=1&CID=All-newsflash.xml
+https://www.theunion.com/search/?f=rss&t=article&c=news&l=20&s=start_time&sd=desc
+https://www.nevadacountyca.gov/RSSFeed.aspx?ModID=1&CID=All-newsflash.xml

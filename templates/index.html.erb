@@ -21,15 +21,15 @@
 	<div class="firehose">
 		<strong>Stories</strong>
 <p>
-<% rss_urls.each do |url| -%>
+<% feeds.each do |feed| -%>
 
   <h3>
-    <a href='<%= url.gsub '/feed/', '' %>'><%= url.gsub '/feed/', ''  %> - <%= feed(url).items.count %> items:</a>
+    <a href='<%= h feed[:site] %>'><%= h feed[:site] %> - <%= feed[:items].count %> items<%= feed[:error] ? ' (unavailable)' : '' %>:</a>
   </h3>
       <ul>
-        <% feed(url).items.each do |item| -%>
+        <% feed[:items].each do |item| -%>
       <li>
-          <a href='<%= item.link %>' > <%= item.title %></a>
+          <a href='<%= h item[:link] %>'><%= h item[:title] %></a>
         </li>
     <% end -%>
       </ul>

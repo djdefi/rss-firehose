@@ -12,7 +12,20 @@ To render the page:
 ruby render.rb
 ```
 
-Outputs to: `public/index.html`
+Outputs to: `public/index.html` (and `public/manifest.json`).
+
+`render.rb` uses only the Ruby standard library (Ruby 2.6+), so there are no gems
+to install. Feeds that are unreachable or malformed are skipped and marked
+`(unavailable)` rather than breaking the whole page.
+
+Feed URLs are read from `urls.txt` (one per line; blank lines and lines starting
+with `#` are ignored) or from the `RSS_URLS` environment variable.
+
+### Tests
+
+```
+ruby -Itest test/render_test.rb
+```
 
 ### Docker
 
@@ -21,7 +34,7 @@ Served up on port 8080 with nginx:
 ```
 docker build -t djdefi/rss-firehose .
 docker run --rm -v rss-firehose:/usr/src/app/public -it djdefi/rss-firehose
-docker run --name rss-nginx --rm -v rss-firehose:/usr/share/nginx/html:ro -p 8080:80 nginx:1.14.0-alpine
+docker run --name rss-nginx --rm -v rss-firehose:/usr/share/nginx/html:ro -p 8080:80 nginx:alpine
 ```
 
 Re-run the `rss-firehose` container to update the page.
