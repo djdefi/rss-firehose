@@ -10,7 +10,7 @@ GEM
     minitest (5.27.0)
     multi_xml (0.6.0)
     rexml (3.4.4)
-    rss (0.3.2)
+    rss (0.3.3)
       rexml
 
 PLATFORMS
