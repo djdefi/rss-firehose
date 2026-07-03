@@ -158,4 +158,74 @@ class RenderTest < Minitest::Test
     
     puts "✓ Manifest PWA settings are correctly configured for iOS"
   end
+
+  # --- Feed-dialect normalization + XSS escaping ---------------------------
+
+  def test_item_title_normalizes_rss_and_atom
+    rss = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>c</title><link>http://x</link>
+      <description>d</description>
+      <item><title>Plain Title</title><link>http://x/1</link></item>
+      </channel></rss>
+    XML
+    assert_equal "Plain Title", item_title(rss.items.first)
+
+    atom_item = Struct.new(:title, :link).new(
+      Struct.new(:content).new("Atom Title"), nil
+    )
+    assert_equal "Atom Title", item_title(atom_item)
+  end
+
+  def test_item_link_normalizes_rss_and_atom
+    rss = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>c</title><link>http://x</link>
+      <description>d</description>
+      <item><title>t</title><link>http://x/1</link></item>
+      </channel></rss>
+    XML
+    assert_equal "http://x/1", item_link(rss.items.first)
+
+    atom_item = Struct.new(:title, :link).new(
+      nil, Struct.new(:href).new("https://atom.test/1")
+    )
+    assert_equal "https://atom.test/1", item_link(atom_item)
+  end
+
+  def test_safe_url_allows_safe_and_blocks_dangerous_schemes
+    assert_equal "https://ok.test/a", safe_url("https://ok.test/a")
+    assert_equal "http://ok.test", safe_url("http://ok.test")
+    assert_equal "/relative", safe_url("/relative")
+    assert_equal "#anchor", safe_url("#anchor")
+    assert_equal "mailto:a@b.test", safe_url("mailto:a@b.test")
+    assert_equal "#", safe_url("javascript:alert(1)")
+    assert_equal "#", safe_url("data:text/html;base64,PHNjcmlwdD4=")
+    assert_equal "#", safe_url("vbscript:msgbox(1)")
+  end
+
+  def test_render_escapes_malicious_feed_content
+    feed = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>Evil</title><link>http://evil.test</link>
+      <description>d</description>
+      <item><title>Danger &lt;script&gt;alert(1)&lt;/script&gt;</title><link>javascript:alert(1)</link></item>
+      <item><title>Safe &amp; Sound</title><link>https://ok.test/a?b=1&amp;c=2</link></item>
+      </channel></rss>
+    XML
+    feeds = { "http://evil.test/feed" => feed }
+    render_html(feeds, "Overall summary", {}, [], nil)
+    output = File.read('public/index.html')
+
+    refute_includes output, "<script>alert(1)</script>",
+      "Malicious script title must be escaped, not injected raw."
+    assert_includes output, "Danger &lt;script&gt;alert(1)&lt;/script&gt;",
+      "Escaped title should appear in output."
+    refute_includes output, "href='javascript:alert(1)'",
+      "javascript: URLs must be neutralized."
+    assert_includes output, "href='#'",
+      "Dangerous URL should collapse to '#'."
+    assert_includes output, "Safe &amp; Sound",
+      "Ampersand in title should be escaped."
+  end
 end
