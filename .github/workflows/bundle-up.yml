@@ -2,6 +2,9 @@ name: Bundle Update Action
 
 on: workflow_dispatch
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Bundle Update
