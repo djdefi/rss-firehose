@@ -396,38 +396,55 @@ def summarize_breaking_news(breaking_news)
   )
 end
 
-def cache_summary(summary)
-  return unless summary && !summary.empty?
-  
+# Cache the full AI summary bundle (overall + per-feed + breaking) as one JSON
+# document so a cache hit can restore every summary and make zero AI calls. The
+# overall summary is stored under `summary` for backward compatibility with
+# older single-summary cache files. Only called when the overall summary is
+# usable (see caller), so a fresh cache never persists an error placeholder.
+def cache_summaries(overall_summary, feed_summaries, breaking_news_summary)
+  return unless overall_summary && !overall_summary.empty?
+
   begin
     FileUtils.mkdir_p('cache')
     File.open(CACHE_FILE, 'w') do |f|
-      f.write({ timestamp: Time.now.utc.iso8601, summary: summary }.to_json)
+      f.write({
+        timestamp: Time.now.utc.iso8601,
+        summary: overall_summary,
+        feed_summaries: feed_summaries || {},
+        breaking_news_summary: breaking_news_summary
+      }.to_json)
     end
-    puts "Summary cached successfully"
+    puts "Summaries cached successfully"
   rescue => e
-    puts "Warning: Failed to cache summary: #{e.message}"
+    puts "Warning: Failed to cache summaries: #{e.message}"
   end
 end
 
-def load_cached_summary
+# Load the cached summary bundle if present and still within the 6h TTL.
+# Returns { 'overall' =>, 'feeds' =>, 'breaking' => } or nil on miss/expiry/
+# error. Older single-summary cache files (just `summary`) still load — the
+# per-feed and breaking parts are simply treated as empty.
+def load_cached_summaries
   # Skip cache if force regeneration is requested
   if ENV['FORCE_REGENERATE'] == 'true'
     puts "Force regeneration enabled, skipping cache"
     return nil
   end
-  
+
   return unless File.exist?(CACHE_FILE)
-  
+
   begin
     data = JSON.parse(File.read(CACHE_FILE))
     timestamp = Time.parse(data['timestamp'])
-    summary = data['summary']
-    
+
     # Check if cache is still valid (6 hours)
     if Time.now.utc - timestamp < 6 * 60 * 60
-      puts "Loaded cached summary from #{timestamp}"
-      summary
+      puts "Loaded cached summaries from #{timestamp}"
+      {
+        'overall' => data['summary'],
+        'feeds' => data['feed_summaries'] || {},
+        'breaking' => data['breaking_news_summary']
+      }
     else
       puts "Cached summary expired, will generate new one"
       nil
@@ -457,24 +474,29 @@ puts ""
 
 feeds = fetch_feeds(rss_urls)
 breaking_news = fetch_yubanet_breaking_news
-breaking_news_summary = summarize_breaking_news(breaking_news)
-cached_summary = load_cached_summary
+cached = load_cached_summaries
 
-if cached_summary
-  overall_summary = cached_summary
-  feed_summaries = feeds.transform_values { |feed| "Cached summary used." }
-  puts "Using cached summary."
+if cached
+  # Reuse every cached summary — a hit makes zero AI calls. (Older caches only
+  # hold the overall summary; the per-feed and breaking sections are omitted
+  # rather than shown as a placeholder.)
+  overall_summary = cached['overall']
+  feed_summaries = cached['feeds'] || {}
+  breaking_news_summary = cached['breaking']
+  puts "Using cached summaries."
 else
   puts "Generating summaries for #{feeds.size} feeds..."
   feed_summaries = feeds.transform_values { |feed| summarize_news(feed) }
   overall_summary = summarize_overall_news(feeds.values)
-  
-  # Only cache if we actually got a useful summary
+  breaking_news_summary = summarize_breaking_news(breaking_news)
+
+  # Only cache if we actually got a useful overall summary, so an error
+  # placeholder never gets persisted for the next 6 hours.
   if overall_summary && !overall_summary.include?("unavailable") && !overall_summary.include?("failed")
-    cache_summary(overall_summary)
-    puts "Generated and cached new summary."
+    cache_summaries(overall_summary, feed_summaries, breaking_news_summary)
+    puts "Generated and cached new summaries."
   else
-    puts "Generated summary but not caching due to errors."
+    puts "Generated summaries but not caching due to errors."
   end
 end
 
