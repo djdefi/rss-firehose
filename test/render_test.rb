@@ -258,6 +258,19 @@ class RenderTest < Minitest::Test
       "Ampersand in title should be escaped."
   end
 
+  # --- Bounded parallel map ------------------------------------------------
+
+  def test_parallel_map_empty_returns_empty_hash
+    assert_equal({}, parallel_map([]))
+  end
+
+  def test_parallel_map_applies_block_to_every_item
+    items = (1..20).to_a
+    result = parallel_map(items) { |n| n * n }
+    assert_equal items.size, result.size, "Every item should produce a result"
+    items.each { |n| assert_equal(n * n, result[n], "Item #{n} should be mapped") }
+  end
+
   # --- Concurrent feed fetching -------------------------------------------
 
   def test_fetch_feeds_empty_returns_empty_hash
