@@ -126,9 +126,38 @@ class RenderTest < Minitest::Test
     output = `FORCE_REGENERATE=false ruby render.rb 2>&1`
     
     # Verify that cache is loaded
-    assert_includes output, "Loaded cached summary", "Cache should be loaded when FORCE_REGENERATE is false"
+    assert_includes output, "Loaded cached summaries", "Cache should be loaded when FORCE_REGENERATE is false"
     
     puts "✓ Force regeneration feature works correctly"
+  ensure
+    FileUtils.rm_f('cache/ai_summary_cache.json')
+  end
+
+  def test_cache_hit_shows_real_summaries_not_placeholder
+    # Regression: a cache hit used to blank every per-feed summary with the
+    # literal string "Cached summary used." and never cached per-feed/breaking
+    # summaries. The bundle cache must restore real summaries instead.
+    load File.expand_path('../render.rb', __dir__)
+    feed_url = 'http://example.com/cache-bundle'
+    FileUtils.mkdir_p('cache')
+    cache_data = {
+      'timestamp' => Time.now.utc.iso8601,
+      'summary' => 'OVERALL_CACHED_MARKER',
+      'feed_summaries' => { feed_url => 'PERFEED_CACHED_MARKER' },
+      'breaking_news_summary' => 'BREAKING_CACHED_MARKER'
+    }.to_json
+    File.write('cache/ai_summary_cache.json', cache_data)
+
+    output = `RSS_URLS=#{feed_url} ruby render.rb 2>&1`
+    html = File.read('public/index.html')
+
+    assert_includes output, "Using cached summaries.", "A fresh cache should be a hit"
+    refute_includes html, "Cached summary used.",
+      "The placeholder must never leak to the rendered page"
+    assert_includes html, "OVERALL_CACHED_MARKER", "Cached overall summary should render"
+    assert_includes html, "PERFEED_CACHED_MARKER", "Cached per-feed summary should render"
+  ensure
+    FileUtils.rm_f('cache/ai_summary_cache.json')
   end
 
   def test_manifest_pwa_settings
