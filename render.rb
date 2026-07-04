@@ -130,43 +130,57 @@ def create_offline_feed(url)
   rss_content
 end
 
-# Fetch and parse all feeds concurrently with a small bounded thread pool.
-# Feeds are independent network I/O, so parallelizing collapses the one-shot's
-# fetch time from the sum of every request to roughly the slowest single feed.
-# Input URL order is preserved and each feed still flows through feed(), so the
-# retry/offline-placeholder behavior is unchanged — only wall-clock time drops.
-# Concurrency is bounded (default 8, override with FEED_CONCURRENCY).
-def fetch_feeds(urls)
-  return {} if urls.empty?
+# Apply the block to each item across a bounded thread pool, returning an
+# (unordered) Hash of { item => block_result }. Used to pipeline the one-shot's
+# independent network I/O — feed fetches and the per-feed/overall/breaking AI
+# summary calls — so wall-clock is roughly the slowest single call instead of
+# the sum of them all. Concurrency is bounded (default 8, override with
+# FEED_CONCURRENCY).
+def parallel_map(items)
+  results = {}
+  return results if items.empty?
 
   max_threads = (ENV['FEED_CONCURRENCY'] || '8').to_i
   max_threads = 1 if max_threads < 1
-  worker_count = [max_threads, urls.size].min
+  worker_count = [max_threads, items.size].min
 
   queue = Queue.new
-  urls.each { |url| queue << url }
-  results = {}
+  items.each { |item| queue << item }
   mutex = Mutex.new
 
   workers = Array.new(worker_count) do
     Thread.new do
       loop do
-        url = begin
+        item = begin
           queue.pop(true)
         rescue ThreadError
           break
         end
-        parsed = begin
-          feed(url)
-        rescue StandardError => e
-          puts "Unexpected error fetching '#{url}': #{e.message}"
-          create_offline_feed(url)
-        end
-        mutex.synchronize { results[url] = parsed }
+        value = yield(item)
+        mutex.synchronize { results[item] = value }
       end
     end
   end
   workers.each(&:join)
+  results
+end
+
+# Fetch and parse all feeds concurrently. Feeds are independent network I/O, so
+# parallelizing collapses the one-shot's fetch time from the sum of every
+# request to roughly the slowest single feed. Input URL order is preserved and
+# each feed still flows through feed(), so the retry/offline-placeholder
+# behavior is unchanged — only wall-clock time drops.
+def fetch_feeds(urls)
+  return {} if urls.empty?
+
+  results = parallel_map(urls) do |url|
+    begin
+      feed(url)
+    rescue StandardError => e
+      puts "Unexpected error fetching '#{url}': #{e.message}"
+      create_offline_feed(url)
+    end
+  end
 
   # Preserve input order and drop nils, matching the previous
   # `rss_urls.map { ... }.to_h.compact` behavior.
@@ -486,9 +500,28 @@ if cached
   puts "Using cached summaries."
 else
   puts "Generating summaries for #{feeds.size} feeds..."
-  feed_summaries = feeds.transform_values { |feed| summarize_news(feed) }
-  overall_summary = summarize_overall_news(feeds.values)
-  breaking_news_summary = summarize_breaking_news(breaking_news)
+
+  # Every summary is an independent GitHub Models request, so pipeline them all
+  # (per-feed + overall + breaking) across the bounded pool instead of making
+  # N+2 serial calls. On a 3-feed run this is 5 HTTP round-trips collapsed from
+  # sequential to roughly one call's wall-clock.
+  jobs = feeds.keys.map { |url| [:feed, url] }
+  jobs << [:overall, nil]
+  jobs << [:breaking, nil]
+
+  summaries = parallel_map(jobs) do |(kind, url)|
+    case kind
+    when :feed     then summarize_news(feeds[url])
+    when :overall  then summarize_overall_news(feeds.values)
+    when :breaking then summarize_breaking_news(breaking_news)
+    end
+  end
+
+  feed_summaries = feeds.keys.each_with_object({}) do |url, acc|
+    acc[url] = summaries[[:feed, url]]
+  end
+  overall_summary = summaries[[:overall, nil]]
+  breaking_news_summary = summaries[[:breaking, nil]]
 
   # Only cache if we actually got a useful overall summary, so an error
   # placeholder never gets persisted for the next 6 hours.
