@@ -29,6 +29,11 @@ PLACEHOLDER_SUMMARIES = [
   'No articles available for summarization.'
 ].freeze
 
+# Maximum length of a friendly feed name before it is truncated with an
+# ellipsis (see feed_display_name), so a long channel title can't dominate the
+# layout or reintroduce horizontal overflow on narrow screens.
+FEED_NAME_MAX = 40
+
 def title
   title = ENV['RSS_TITLE'] || 'News Firehose'
   title.strip.empty? ? 'News Firehose' : title
@@ -264,6 +269,31 @@ end
 def safe_url(url)
   str = url.to_s.strip
   str.match?(%r{\A(?:https?://|ftp://|mailto:|//|/|\#)}i) ? str : '#'
+end
+
+# Bare hostname for a feed URL: strips scheme, leading "www." and any path, so
+# "https://www.example.com/rss?x=1" becomes "example.com". Falls back to the
+# original string if stripping leaves it empty.
+def feed_host(url)
+  host = url.to_s.sub(%r{\Ahttps?://}i, '').sub(/\Awww\./i, '').sub(%r{/.*\z}m, '')
+  host.empty? ? url.to_s : host
+end
+
+# Friendly, short label for a feed source shown in the rendered page: prefer the
+# RSS channel title (e.g. "YubaNet"), falling back to the bare hostname when the
+# title is missing, the feed is offline, the title itself looks like a URL/domain
+# (some feeds title themselves "www.example.com - RSS Results ..."), or the title
+# is unreasonably long. Keeps the listing clean and avoids long raw URLs
+# overflowing mobile viewports.
+def feed_display_name(url, parsed)
+  title = (parsed.channel.title.to_s.strip if parsed.respond_to?(:channel) && parsed.channel)
+  return feed_host(url) if title.nil? || title.empty? ||
+                           title == FEED_OFFLINE_TITLE ||
+                           title.match?(%r{\A(?:https?://|www\.)}i)
+
+  title.length > FEED_NAME_MAX ? "#{title[0, FEED_NAME_MAX].rstrip}…" : title
+rescue StandardError
+  feed_host(url)
 end
 
 def sanitize_response(response_body)
