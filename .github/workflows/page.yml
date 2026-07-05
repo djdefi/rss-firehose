@@ -29,7 +29,7 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
     # Restores the most recent AI summary cache. A per-run key with a shared
     # restore prefix is used so the cache actually refreshes: exact-key restore
@@ -38,7 +38,7 @@ jobs:
     # immutable once written and would freeze the cache forever.)
     - name: Restore AI summary cache
       id: cache-ai-summary
-      uses: actions/cache/restore@v5
+      uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: cache
         key: ai-summary-${{ github.run_id }}
@@ -47,7 +47,7 @@ jobs:
 
     # Sets up Ruby environment
     - name: Setup Ruby
-      uses: ruby/setup-ruby@v1.316.0
+      uses: ruby/setup-ruby@d45b1a4e94b71acab930e56e79c6aa188764e7f9 # v1.316.0
       with:
         ruby-version: .ruby-version # Single source of truth: .ruby-version
         bundler-cache: true
@@ -62,7 +62,7 @@ jobs:
     # Old entries are evicted by GitHub's cache retention policy.
     - name: Save AI summary cache
       if: always()
-      uses: actions/cache/save@v5
+      uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: cache
         key: ai-summary-${{ github.run_id }}
@@ -70,12 +70,12 @@ jobs:
     # Runs a Git AV scan
     - name: Git AV Scan
       if: success()
-      uses: djdefi/gitavscan@20
+      uses: djdefi/gitavscan@10738a745366c8cb8443cd4f9cbeeebcc3328975 # 20
 
     # Checks the rendered HTML for issues
     - name: Check Rendered HTML
       if: success()
-      uses: chabad360/htmlproofer@master
+      uses: chabad360/htmlproofer@a1a3419200cea0e832a5c6249647d1d271178e82 # master
       continue-on-error: true
       with:
         directory: "./public"
@@ -84,7 +84,7 @@ jobs:
     # Deploys the site to GitHub Pages
     - name: GitHub Pages
       if: success()
-      uses: crazy-max/ghaction-github-pages@v5
+      uses: crazy-max/ghaction-github-pages@1d6ee9b181a81033a16bd707a1401afa978daab4 # v5
       with:
         build_dir: public
       env:
