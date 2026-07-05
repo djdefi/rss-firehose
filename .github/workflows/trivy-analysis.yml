@@ -9,14 +9,14 @@ jobs:
     runs-on: "ubuntu-latest"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
       - name: Build an image from Dockerfile
         run: |
           docker build -t djdefi/rss-firehose:${{ github.sha }} .
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@c07df6fec6fa692e6fd1200d50aaa1fdd66f03c8 # master
         with:
           image-ref: 'djdefi/rss-firehose:${{ github.sha }}'
           format: 'template'
@@ -25,6 +25,6 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@fb84f6228fd846d3c392887f22b18ce2d9139495 # v4
         with:
           sarif_file: 'trivy-results.sarif'
