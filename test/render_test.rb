@@ -233,6 +233,59 @@ class RenderTest < Minitest::Test
     assert_equal "#", safe_url("vbscript:msgbox(1)")
   end
 
+  def test_feed_host_strips_scheme_www_and_path
+    assert_equal "example.com", feed_host("https://www.example.com/rss?x=1")
+    assert_equal "yubanet.com", feed_host("https://yubanet.com/feed/")
+    assert_equal "theunion.com", feed_host("https://www.theunion.com/search/?f=rss&t=article&c=news")
+    # Nothing to strip: returns the original rather than an empty string.
+    assert_equal "not a url", feed_host("not a url")
+  end
+
+  def test_feed_display_name_prefers_channel_title
+    rss = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>YubaNet</title><link>http://x</link>
+      <description>d</description>
+      <item><title>t</title><link>http://x/1</link></item>
+      </channel></rss>
+    XML
+    assert_equal "YubaNet", feed_display_name("https://yubanet.com/feed/", rss)
+  end
+
+  def test_feed_display_name_falls_back_to_host_for_offline_feed
+    url = "https://www.theunion.com/search/?f=rss&t=article&c=news"
+    offline = create_offline_feed(url)
+    assert_equal "theunion.com", feed_display_name(url, offline),
+                 "Offline feeds must show a friendly hostname, not the offline placeholder title"
+  end
+
+  def test_feed_display_name_falls_back_to_host_for_url_like_title
+    # Some feeds title themselves after their URL (e.g. theunion's RSS search).
+    rss = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>www.theunion.com - RSS Results in news only</title>
+      <link>http://x</link><description>d</description>
+      <item><title>t</title><link>http://x/1</link></item>
+      </channel></rss>
+    XML
+    assert_equal "theunion.com",
+                 feed_display_name("https://www.theunion.com/search/?f=rss&t=article&c=news", rss),
+                 "URL-like channel titles must fall back to the clean hostname"
+  end
+
+  def test_feed_display_name_truncates_overlong_title
+    rss = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>#{'A' * 60}</title><link>http://x</link>
+      <description>d</description>
+      <item><title>t</title><link>http://x/1</link></item>
+      </channel></rss>
+    XML
+    name = feed_display_name("https://x.test/feed/", rss)
+    assert name.length <= FEED_NAME_MAX + 1, "Overlong titles must be truncated near FEED_NAME_MAX"
+    assert name.end_with?("…"), "Truncated names must end with an ellipsis"
+  end
+
   def test_render_escapes_malicious_feed_content
     feed = RSS::Parser.parse(<<~XML, false)
       <?xml version="1.0"?>

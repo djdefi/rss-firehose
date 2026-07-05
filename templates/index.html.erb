@@ -3,7 +3,8 @@
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <meta name="theme-color" content="#efefef">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f6f8">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d1117">
   <link rel="icon" sizes="192x192" href="img/icon.png">
   <link rel="apple-touch-icon" href="img/icon.png">
   <link type="text/css" rel="stylesheet" href="main.css"/>
@@ -12,53 +13,65 @@
   <meta name="description" content="<%= description %>"/>
 </head>
 <body>
-<div role="main">
-  <header style="padding:10px;">
-    <h1 style="color:#c00;" aria-label="Page Title"><%= title %></h1>
-    <p aria-label="Current Date and Time"><%= Time.now.strftime('%F %R %Z') -%></p>
+<main class="container">
+  <header class="site-header">
+    <h1 class="site-title" aria-label="Page Title"><%= title %></h1>
+    <p class="site-meta" aria-label="Last updated">Updated <%= Time.now.strftime('%F %R %Z') -%></p>
+    <ul class="stat-chips" aria-label="Feed statistics">
+      <li class="chip"><strong><%= feeds.size %></strong> <%= feeds.size == 1 ? 'feed' : 'feeds' %></li>
+      <li class="chip"><strong><%= feeds.sum { |_url, parsed| parsed.items.count } %></strong> stories</li>
+      <% if defined?(breaking_news) && breaking_news && !breaking_news.empty? %>
+      <li class="chip chip-alert"><strong><%= breaking_news.size %></strong> breaking</li>
+      <% end %>
+    </ul>
   </header>
-  <hr/>
+
   <% if overall_summary && !overall_summary.empty? %>
-  <section class="overall-summary" style="padding:10px;" aria-labelledby="overall-summary-title">
+  <section class="card overall-summary" aria-labelledby="overall-summary-title">
     <h2 id="overall-summary-title">Overall Summary</h2>
     <p><%= overall_summary %></p>
   </section>
-  <hr/>
   <% end %>
+
   <% if defined?(breaking_news) && breaking_news && !breaking_news.empty? %>
-  <section class="breaking-news" style="padding:10px;" aria-labelledby="breaking-news-title">
-    <h2 id="breaking-news-title" style="color:#c00;">🚨 Breaking News - YubaNet Live Updates</h2>
+  <section class="card breaking-news" aria-labelledby="breaking-news-title">
+    <h2 id="breaking-news-title" class="alert">🚨 Breaking News - YubaNet Live Updates</h2>
     <% if defined?(breaking_news_summary) && breaking_news_summary && !breaking_news_summary.include?("unavailable") && !breaking_news_summary.include?("failed") %>
-    <div style="background-color:#fff5f5; border-left:4px solid #c00; padding:10px; margin:10px 0;">
-      <h3 style="margin-top:0; color:#c00;">AI Summary</h3>
+    <div class="ai-summary">
+      <h3>AI Summary</h3>
       <p><%= breaking_news_summary %></p>
     </div>
     <% end %>
-    <div>
-      <h3>
-        <a href='https://yubanet.com/featured/now/' aria-label="YubaNet Breaking News">yubanet.com/featured/now - <%= breaking_news.size %> recent updates:</a>
-      </h3>
-      <ul>
-        <% breaking_news.first(10).each do |news_item| -%>
-          <li>
-            <strong><%= html_escape(news_item[:timestamp]) %></strong>: 
-            <a href='<%= html_escape(safe_url(news_item[:link])) %>' aria-label="Breaking News Item"><%= html_escape(news_item[:content]) %></a>
-          </li>
-        <% end -%>
-      </ul>
-    </div>
+    <h3 class="feed-link">
+      <a href='https://yubanet.com/featured/now/' aria-label="YubaNet Breaking News">yubanet.com/featured/now - <%= breaking_news.size %> recent updates</a>
+    </h3>
+    <ul class="news-list">
+      <% breaking_news.first(10).each do |news_item| -%>
+        <li>
+          <strong><%= html_escape(news_item[:timestamp]) %></strong>
+          <a href='<%= html_escape(safe_url(news_item[:link])) %>' aria-label="Breaking News Item"><%= html_escape(news_item[:content]) %></a>
+        </li>
+      <% end -%>
+    </ul>
   </section>
-  <hr/>
   <% end %>
-  <section class="firehose" style="padding:10px;" aria-labelledby="stories-title">
-    <h2 id="stories-title">Stories</h2>
-    <div>
-      <% feeds.each do |url, parsed| -%>
-        <h3>
-          <a href='<%= url.gsub '/feed/', '' %>' aria-label="Feed URL"><%= url.gsub '/feed/', '' %> - <%= parsed.items.count %> items:</a>
+
+  <section class="firehose" aria-labelledby="stories-title">
+    <h2 id="stories-title" class="section-heading">Stories</h2>
+    <% max_items = feeds.map { |_url, parsed| parsed.items.count }.max.to_i %>
+    <% max_items = 1 if max_items < 1 %>
+    <% feeds.each do |url, parsed| -%>
+      <% count = parsed.items.count -%>
+      <div class="card feed">
+        <h3 class="feed-link">
+          <a href='<%= html_escape(safe_url("https://#{feed_host(url)}/")) %>' aria-label="Feed source"><%= html_escape(feed_display_name(url, parsed)) %></a>
         </h3>
+        <div class="feed-meta">
+          <span class="count"><%= count %> <%= count == 1 ? 'item' : 'items' %></span>
+          <span class="bar" aria-hidden="true"><span class="bar-fill" style="width: <%= (count.to_f / max_items * 100).round %>%"></span></span>
+        </div>
         <% if feed_summaries[url] && !feed_summaries[url].empty? %>
-        <div class="feed-summary" style="padding:10px;" aria-labelledby="feed-summary-title-<%= url %>">
+        <div class="feed-summary" aria-labelledby="feed-summary-title-<%= url %>">
           <h4 id="feed-summary-title-<%= url %>">Feed Summary</h4>
           <p><%= feed_summaries[url] %></p>
         </div>
@@ -70,10 +83,10 @@
             </li>
           <% end -%>
         </ul>
-      <% end -%>
-    </div>
+      </div>
+    <% end -%>
   </section>
-</div>
+</main>
 
 <% if analytics_ua %>
 <script>
