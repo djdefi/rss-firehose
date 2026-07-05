@@ -34,6 +34,12 @@ PLACEHOLDER_SUMMARIES = [
 # layout or reintroduce horizontal overflow on narrow screens.
 FEED_NAME_MAX = 40
 
+# Maximum length of a single item's description fed to the summarizer (see
+# item_description). Caps how much one verbose article can consume of the
+# token-bounded content window, so several items still fit and the AI gets
+# breadth as well as depth.
+ITEM_DESC_MAX = 240
+
 def title
   title = ENV['RSS_TITLE'] || 'News Firehose'
   title.strip.empty? ? 'News Firehose' : title
@@ -263,6 +269,26 @@ def item_link(item)
   raw.to_s
 end
 
+# Normalize an item's summary/description across feed dialects (RSS2
+# `description`, Atom `summary`/`content`), strip HTML tags and decode entities,
+# collapse whitespace, and cap the length. Gives the summarizer real article
+# substance (not just the headline) while keeping the content window bounded.
+# The raw value is length-capped before the tag regex runs so a pathological
+# description can't cause quadratic backtracking, and full tags (e.g. a
+# WordPress featured <img> with a long srcset) are stripped whole rather than
+# leaking markup. Returns "" when the item has no usable description.
+def item_description(item)
+  raw = nil
+  raw = item.description if item.respond_to?(:description) && item.description
+  raw = item.summary if raw.nil? && item.respond_to?(:summary) && item.summary
+  raw = item.content if raw.nil? && item.respond_to?(:content) && item.content
+
+  text = (raw.respond_to?(:content) ? raw.content.to_s : raw.to_s)[0, 4000]
+  text = CGI.unescapeHTML(text.gsub(/<[^>]*>/, ' ')).gsub(/\s+/, ' ')
+  text = text.gsub(/ +([.,;:!?])/, '\1').strip
+  text.length > ITEM_DESC_MAX ? "#{text[0, ITEM_DESC_MAX].rstrip}…" : text
+end
+
 # Allow only safe URL schemes in generated hrefs so a malicious feed can't inject
 # javascript:/data:/vbscript: links. Absolute, protocol-relative, root-relative
 # and anchor links pass through; anything else collapses to '#'.
@@ -388,10 +414,10 @@ def summarize_news(feed)
   return "No articles available for summarization." if news_content.empty?
 
   generate_ai_summary(
-    "Summarize the key news stories and developments in under 150 words. Focus on the actual news events, facts, and analysis presented in the content. Write as if creating a front-page news digest. Use clear, journalistic language with varied sentence structure. Include specific names, places, dates, and substantive details when available. Avoid commenting on the news source itself.",
+    "You are a news editor writing a front-page digest. Summarize the key stories below in under 150 words of clear, factual journalistic prose. Lead with the most important developments and include specific names, places, dates, and figures when present. Do not mention the feed or that you are summarizing. Output only the summary text: no headings, labels, lists, or preamble.",
     news_content[0..4096],
     context: "news",
-    temperature: 0.6,
+    temperature: 0.5,
     max_tokens: 300,
     top_p: 1
   )
@@ -407,7 +433,7 @@ def summarize_overall_news(feeds)
   return "No articles available for summarization." if all_content.empty?
 
   generate_ai_summary(
-    "Create a front-page news summary under 200 words covering the major news stories and developments from all sources. Identify the most important stories, key themes, and significant trends. Write as a professional news editor would for a major newspaper's front page. Focus on what happened, who it affects, and why it matters. Use clear, authoritative journalistic language. Emphasize facts, context, and implications rather than just listing events. Avoid any commentary about news sources themselves.",
+    "You are the editor of a major newspaper writing the front-page summary across all of today's sources. In under 200 words, synthesize the most important stories, common themes, and significant trends. Explain what happened, who is affected, and why it matters, emphasizing facts and implications over a list of events. Do not mention the feeds or sources themselves. Output only the summary text: no headings, labels, or preamble.",
     all_content[0..6144],
     context: "overall news",
     temperature: 0.4,
@@ -416,11 +442,18 @@ def summarize_overall_news(feeds)
   )
 end
 
-# Extract content from a feed, handling offline feeds gracefully
+# Extract content from a feed for summarization: one "Title - description" line
+# per item. Includes the article description (real substance) and deliberately
+# omits the raw URL, which only wastes tokens and tempts the model to "comment
+# on" or "access" the source. Handles offline feeds gracefully.
 def extract_feed_content(feed)
   return [] if feed.nil? || !feed.respond_to?(:items) || feed.items.nil?
-  
-  feed.items.map { |item| "#{item_title(item)} (#{item_link(item)})" }.compact
+
+  feed.items.map do |item|
+    title = item_title(item).to_s.strip
+    desc = item_description(item)
+    desc.empty? ? title : "#{title} - #{desc}"
+  end.reject(&:empty?)
 rescue => e
   puts "Error extracting feed content: #{e.message}"
   []
@@ -486,7 +519,7 @@ def summarize_breaking_news(breaking_news)
   return "No breaking news content available for summarization." if content_text.empty?
 
   generate_ai_summary(
-    "Create a concise summary of the breaking news updates under 100 words. Focus on the most critical information and current developments. Identify patterns, key issues, and immediate impacts. Use urgent but clear language appropriate for breaking news. Highlight what readers need to know right now.",
+    "You are a breaking-news editor. In under 100 words, summarize the most critical, time-sensitive developments below. Highlight what readers need to know right now, including immediate impacts and any emerging pattern. Use urgent but clear language. Output only the summary text: no headings, labels, or preamble.",
     content_text[0..3072],
     context: "breaking news",
     temperature: 0.3,
