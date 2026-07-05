@@ -40,6 +40,26 @@ FEED_NAME_MAX = 40
 # breadth as well as depth.
 ITEM_DESC_MAX = 240
 
+# National Weather Service active-alerts API + the zone to watch. CAC057 is
+# Nevada County, CA (covers Nevada City, Grass Valley and Truckee); override
+# with NWS_ALERT_ZONE (any NWS county "CACnnn" or forecast/fire "CAZnnn" UGC).
+# The band is the "high-signal, only-when-active" critical strip: it renders
+# nothing when there are no qualifying alerts. NWS requires a descriptive
+# User-Agent or it returns 403.
+NWS_ALERTS_ENDPOINT = 'https://api.weather.gov/alerts/active'
+NWS_ALERT_ZONE = (ENV['NWS_ALERT_ZONE'] || 'CAC057').strip
+NWS_USER_AGENT = 'rss-firehose (https://github.com/djdefi/rss-firehose)'
+
+# Only genuinely critical, actionable alerts belong in the band. Keep an alert
+# if its severity is Severe/Extreme (NWS "Warnings") or its event matches one
+# of these life-safety types, so routine advisories (Lake Wind, Heat Advisory)
+# are filtered out.
+NWS_CRITICAL_EVENTS = /red flag|fire warning|fire weather|evacuation|flood|tornado|tsunami|hurricane|extreme|blizzard|severe thunderstorm/i
+NWS_CRITICAL_SEVERITIES = %w[Severe Extreme].freeze
+# Cap how many alerts the band lists, newest first, so a busy alert day can't
+# push the actual news far down the page.
+NWS_ALERT_MAX = 6
+
 def title
   title = ENV['RSS_TITLE'] || 'News Firehose'
   title.strip.empty? ? 'News Firehose' : title
@@ -89,7 +109,7 @@ def analytics_ua
   ENV['ANALYTICS_UA']
 end
 
-def render_html(feeds, overall_summary, feed_summaries, breaking_news = [], breaking_news_summary = nil)
+def render_html(feeds, overall_summary, feed_summaries, breaking_news = [], breaking_news_summary = nil, weather_alerts = [])
   begin
     html = File.open('templates/index.html.erb').read
     template = ERB.new(html, trim_mode: '-')
@@ -528,6 +548,67 @@ def summarize_breaking_news(breaking_news)
   )
 end
 
+# Turn an NWS active-alerts API JSON body into a compact, escaped-later list of
+# critical alerts. Pure (no I/O) so it can be unit-tested against fixture JSON.
+# Keeps only genuinely critical alerts (see NWS_CRITICAL_* ) so routine
+# advisories don't dilute the band, dedupes repeated events, and caps the count.
+def parse_weather_alerts(json_body)
+  data = JSON.parse(json_body.to_s)
+  features = data['features']
+  return [] unless features.is_a?(Array)
+
+  alerts = features.filter_map do |feature|
+    props = feature['properties']
+    next unless props.is_a?(Hash)
+
+    event = props['event'].to_s.strip
+    next if event.empty?
+
+    severity = props['severity'].to_s
+    next unless NWS_CRITICAL_SEVERITIES.include?(severity) || event.match?(NWS_CRITICAL_EVENTS)
+
+    {
+      event: event,
+      headline: props['headline'].to_s.strip,
+      area: props['areaDesc'].to_s.strip,
+      severity: severity,
+      expires: props['expires'].to_s.strip
+    }
+  end
+
+  alerts.uniq { |a| [a[:event], a[:area]] }.first(NWS_ALERT_MAX)
+rescue JSON::ParserError => e
+  puts "Error parsing weather alerts: #{e.message}"
+  []
+end
+
+# Fetch active NWS alerts for a zone and return the critical subset. Always
+# fetched fresh (alerts are time-sensitive, so they are never cached with the
+# 6-hour AI bundle) and fails soft to [] so a NWS outage never breaks the page.
+def fetch_weather_alerts(zone = NWS_ALERT_ZONE)
+  return [] if zone.nil? || zone.empty?
+
+  response = HTTParty.get(
+    "#{NWS_ALERTS_ENDPOINT}?zone=#{CGI.escape(zone)}",
+    timeout: 30,
+    headers: { 'User-Agent' => NWS_USER_AGENT, 'Accept' => 'application/geo+json' }
+  )
+  unless response.code == 200
+    puts "Failed to fetch NWS alerts for #{zone}: HTTP #{response.code}"
+    return []
+  end
+
+  alerts = parse_weather_alerts(response.body)
+  puts "Fetched #{alerts.size} critical NWS alert(s) for #{zone}"
+  alerts
+rescue HTTParty::Error => e
+  puts "HTTP error fetching NWS alerts: #{e.message}"
+  []
+rescue => e
+  puts "General error fetching NWS alerts: #{e.message}"
+  []
+end
+
 # Cache the full AI summary bundle (overall + per-feed + breaking) as one JSON
 # document so a cache hit can restore every summary and make zero AI calls. The
 # overall summary is stored under `summary` for backward compatibility with
@@ -606,6 +687,7 @@ puts ""
 
 feeds = fetch_feeds(rss_urls)
 breaking_news = fetch_yubanet_breaking_news
+weather_alerts = fetch_weather_alerts
 cached = load_cached_summaries
 
 if cached
@@ -656,7 +738,7 @@ puts "Overall Summary: #{overall_summary}"
 
 begin
   render_manifest
-  render_html(feeds, overall_summary, feed_summaries, breaking_news, breaking_news_summary)
+  render_html(feeds, overall_summary, feed_summaries, breaking_news, breaking_news_summary, weather_alerts)
   puts "Successfully rendered HTML and manifest files."
 rescue => e
   puts "Error during rendering process: #{e.message}"

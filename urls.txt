@@ -1,3 +1,4 @@
 https://yubanet.com/feed/
 https://www.theunion.com/search/?f=rss&t=article&c=news
 https://www.mynevadacounty.com/RSSFeed.aspx?ModID=1&CID=All-newsflash.xml
+https://www.knco.com/feed/

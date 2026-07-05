@@ -282,6 +282,64 @@ class RenderTest < Minitest::Test
                     "Raw feed URLs must not be sent to the summarizer"
   end
 
+  # --- NWS critical weather-alert band -------------------------------------
+
+  def test_parse_weather_alerts_keeps_critical_drops_advisories
+    json = {
+      features: [
+        { properties: { event: "Red Flag Warning", severity: "Severe",
+                        headline: "Red Flag Warning until 11 PM", areaDesc: "Western Nevada County",
+                        expires: "2026-07-06T23:00:00-07:00" } },
+        { properties: { event: "Lake Wind Advisory", severity: "Moderate",
+                        headline: "Lake Wind Advisory", areaDesc: "Lake Tahoe", expires: "" } },
+        { properties: { event: "Evacuation Warning", severity: "Unknown",
+                        headline: "Evac warning", areaDesc: "Zone 3", expires: "" } }
+      ]
+    }.to_json
+    events = parse_weather_alerts(json).map { |a| a[:event] }
+    assert_includes events, "Red Flag Warning", "Severe-severity warnings must be kept"
+    assert_includes events, "Evacuation Warning", "life-safety events are kept even at Unknown severity"
+    refute_includes events, "Lake Wind Advisory", "routine advisories must be filtered out"
+  end
+
+  def test_parse_weather_alerts_handles_empty_and_malformed
+    assert_equal [], parse_weather_alerts('{"features":[]}')
+    assert_equal [], parse_weather_alerts('not json at all')
+    assert_equal [], parse_weather_alerts('{}')
+  end
+
+  def test_parse_weather_alerts_dedupes_and_caps
+    dupes = Array.new(4) do
+      { properties: { event: "Flood Warning", severity: "Severe", areaDesc: "Same Area", headline: "h", expires: "" } }
+    end
+    assert_equal 1, parse_weather_alerts({ features: dupes }.to_json).size,
+                 "identical event+area alerts must dedupe"
+
+    many = Array.new(NWS_ALERT_MAX + 3) do |i|
+      { properties: { event: "Flood Warning", severity: "Severe", areaDesc: "Area #{i}", headline: "h", expires: "" } }
+    end
+    assert_equal NWS_ALERT_MAX, parse_weather_alerts({ features: many }.to_json).size,
+                 "the band must cap the number of listed alerts"
+  end
+
+  def test_render_includes_and_escapes_weather_alert_band
+    feed = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>C</title><link>http://x</link>
+      <description>d</description>
+      <item><title>t</title><link>http://x/1</link></item>
+      </channel></rss>
+    XML
+    alerts = [{ event: "Red Flag Warning <script>", area: "Zone & County",
+                headline: "Until 11 PM", severity: "Severe", expires: "" }]
+    render_html({ "http://x/feed" => feed }, "Overall", {}, [], nil, alerts)
+    output = File.read('public/index.html')
+    assert_includes output, "Active Weather Alerts", "band must render when alerts are present"
+    assert_includes output, "Red Flag Warning &lt;script&gt;", "alert event must be HTML-escaped"
+    assert_includes output, "Zone &amp; County", "alert area must be HTML-escaped"
+    refute_includes output, "Red Flag Warning <script>", "no unescaped alert markup may leak"
+  end
+
   def test_safe_url_allows_safe_and_blocks_dangerous_schemes
     assert_equal "https://ok.test/a", safe_url("https://ok.test/a")
     assert_equal "http://ok.test", safe_url("http://ok.test")
