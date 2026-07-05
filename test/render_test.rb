@@ -295,4 +295,25 @@ class RenderTest < Minitest::Test
       Object.send(:define_method, :feed, original.unbind)
     end
   end
+
+  # --- Offline feeds don't leak AI refusals -------------------------------
+
+  def test_feed_offline_detects_placeholder
+    offline = create_offline_feed('http://example.com/down')
+    assert feed_offline?(offline), "create_offline_feed output should be detected as offline"
+  end
+
+  def test_summarize_news_skips_offline_feed_returning_nil
+    # Must short-circuit before any AI call, so this needs no network/token.
+    offline = create_offline_feed('http://example.com/down')
+    assert_nil summarize_news(offline),
+               "Offline feeds must return nil so the template hides the summary box (no AI refusal leak)"
+  end
+
+  def test_summarize_overall_news_excludes_offline_feeds
+    offline = create_offline_feed('http://example.com/down')
+    result = summarize_overall_news([offline])
+    assert_equal "No articles available for summarization.", result,
+                 "An all-offline set has no real content and must not be sent to the AI"
+  end
 end

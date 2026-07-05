@@ -10,6 +10,16 @@ require 'fileutils'
 
 CACHE_FILE = 'cache/ai_summary_cache.json'
 
+# Channel title stamped on the placeholder feed built for an offline/failed
+# source (see create_offline_feed). Callers use feed_offline? to detect it.
+FEED_OFFLINE_TITLE = 'Feed currently offline'
+
+# Seconds to wait before the single feed re-fetch. A brief pause lets a
+# transient upstream hiccup (rate-limit/blip from the CI runner IP) recover
+# instead of flipping the feed to the offline placeholder. Override/disable
+# with FEED_RETRY_DELAY (e.g. 0 in tests).
+FEED_RETRY_DELAY = (ENV['FEED_RETRY_DELAY'] || '2').to_f
+
 def title
   title = ENV['RSS_TITLE'] || 'News Firehose'
   title.strip.empty? ? 'News Firehose' : title
@@ -92,6 +102,7 @@ def feed(url)
     # If the feed is empty or nil, retry once
     if (rss_content.nil? || rss_content.items.empty?)
       puts "Feed from '#{url}' returned no items, retrying once..."
+      sleep(FEED_RETRY_DELAY) if FEED_RETRY_DELAY.positive?
       response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
       rss_content = RSS::Parser.parse(response.body, false) if response.code == 200
     end
@@ -116,7 +127,7 @@ end
 def create_offline_feed(url)
   rss_content = RSS::Rss.new('2.0')
   rss_content.channel = RSS::Rss::Channel.new
-  rss_content.channel.title = "Feed currently offline"
+  rss_content.channel.title = FEED_OFFLINE_TITLE
   rss_content.channel.link = url
   rss_content.channel.description = "The feed from '#{url}' is currently offline or returned no items."
   
@@ -130,8 +141,19 @@ def create_offline_feed(url)
   rss_content
 end
 
-# Apply the block to each item across a bounded thread pool, returning an
-# (unordered) Hash of { item => block_result }. Used to pipeline the one-shot's
+# True when the feed is the offline placeholder built by create_offline_feed.
+# Its only "item" is the bare feed URL, which is useless (and actively harmful)
+# to summarize: the AI model responds with a refusal like "I'm unable to access
+# external websites", which then leaks to visitors. Summary callers skip these.
+def feed_offline?(feed)
+  feed.respond_to?(:channel) &&
+    feed.channel.respond_to?(:title) &&
+    feed.channel.title == FEED_OFFLINE_TITLE
+rescue StandardError
+  false
+end
+
+
 # independent network I/O — feed fetches and the per-feed/overall/breaking AI
 # summary calls — so wall-clock is roughly the slowest single call instead of
 # the sum of them all. Concurrency is bounded (default 8, override with
@@ -304,6 +326,10 @@ end
 
 def summarize_news(feed)
   return "No content available for summarization." if feed.nil?
+  # An offline placeholder feed has no real content to summarize; returning nil
+  # lets the template hide the per-feed summary box entirely instead of leaking
+  # an AI refusal ("I'm unable to access external websites") to visitors.
+  return nil if feed_offline?(feed)
 
   news_content = if feed.is_a?(Array)
                    feed.flat_map { |f| extract_feed_content(f) }.join('. ')
@@ -325,7 +351,10 @@ end
 def summarize_overall_news(feeds)
   return "No content available for summarization." if feeds.nil? || feeds.empty?
 
-  all_content = feeds.flat_map { |feed| extract_feed_content(feed) }.join('. ')
+  # Skip offline placeholders so the bare feed URL never pollutes the
+  # front-page summary (or makes the model refuse to summarize it).
+  live_feeds = feeds.reject { |feed| feed_offline?(feed) }
+  all_content = live_feeds.flat_map { |feed| extract_feed_content(feed) }.join('. ')
   return "No articles available for summarization." if all_content.empty?
 
   generate_ai_summary(
