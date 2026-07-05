@@ -161,6 +161,56 @@ h3 {
     color: var(--accent);
 }
 
+/* Critical weather-alert band (NWS) — only rendered when alerts are active.
+   No animation/flash (accessibility): a solid accent border carries urgency. */
+.alert-band {
+    border-color: var(--accent);
+    border-left: 5px solid var(--accent);
+    background: var(--accent-weak);
+}
+
+.alert-title {
+    color: var(--accent);
+}
+
+.alert-list {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+}
+
+.alert-list li {
+    padding: 8px 0;
+    border-top: 1px solid var(--border);
+}
+
+.alert-list li:first-child {
+    border-top: 0;
+}
+
+.alert-event {
+    font-weight: 700;
+    color: var(--accent);
+    margin-right: 8px;
+}
+
+.alert-area {
+    font-weight: 600;
+}
+
+.alert-detail {
+    display: block;
+    color: var(--muted);
+    font-size: .92rem;
+    margin-top: 2px;
+}
+
+.alert-source {
+    margin: 10px 0 0;
+    font-size: .82rem;
+    color: var(--muted);
+}
+
 /* AI summary callout */
 .ai-summary {
     margin: 14px 0;

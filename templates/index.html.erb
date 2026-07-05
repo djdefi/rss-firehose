@@ -26,6 +26,22 @@
     </ul>
   </header>
 
+  <% if defined?(weather_alerts) && weather_alerts && !weather_alerts.empty? %>
+  <section class="card alert-band" aria-labelledby="alerts-title" role="alert">
+    <h2 id="alerts-title" class="alert-title">⚠️ Active Weather Alerts</h2>
+    <ul class="alert-list">
+      <% weather_alerts.each do |wa| -%>
+        <li>
+          <span class="alert-event"><%= html_escape(wa[:event]) %></span>
+          <% unless wa[:area].to_s.strip.empty? -%><span class="alert-area"><%= html_escape(wa[:area]) %></span><% end -%>
+          <% unless wa[:headline].to_s.strip.empty? -%><span class="alert-detail"><%= html_escape(wa[:headline]) %></span><% end -%>
+        </li>
+      <% end -%>
+    </ul>
+    <p class="alert-source">via <a href="https://www.weather.gov/" aria-label="National Weather Service">National Weather Service</a></p>
+  </section>
+  <% end %>
+
   <% if overall_summary && !overall_summary.empty? %>
   <section class="card overall-summary" aria-labelledby="overall-summary-title">
     <h2 id="overall-summary-title">Overall Summary</h2>
