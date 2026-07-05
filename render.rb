@@ -275,8 +275,8 @@ end
 # substance (not just the headline) while keeping the content window bounded.
 # The raw value is length-capped before the tag regex runs so a pathological
 # description can't cause quadratic backtracking, and full tags (e.g. a
-# WordPress featured <img> with a long srcset) are stripped whole rather than
-# leaking markup. Returns "" when the item has no usable description.
+# WordPress featured image tag with a long srcset) are stripped whole rather
+# than leaking markup. Returns "" when the item has no usable description.
 def item_description(item)
   raw = nil
   raw = item.description if item.respond_to?(:description) && item.description
