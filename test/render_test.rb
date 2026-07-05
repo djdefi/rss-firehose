@@ -222,6 +222,66 @@ class RenderTest < Minitest::Test
     assert_equal "https://atom.test/1", item_link(atom_item)
   end
 
+  def test_item_description_rss_strips_html_and_decodes_entities
+    rss = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>c</title><link>http://x</link>
+      <description>d</description>
+      <item><title>t</title><link>http://x/1</link>
+      <description>&lt;p&gt;Rain &amp;amp; wind hit the &lt;b&gt;valley&lt;/b&gt;.&lt;/p&gt;</description></item>
+      </channel></rss>
+    XML
+    assert_equal "Rain & wind hit the valley.", item_description(rss.items.first)
+  end
+
+  def test_item_description_truncates_overlong_text
+    rss = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>c</title><link>http://x</link>
+      <description>d</description>
+      <item><title>t</title><link>http://x/1</link>
+      <description>#{'word ' * 100}</description></item>
+      </channel></rss>
+    XML
+    desc = item_description(rss.items.first)
+    assert desc.length <= ITEM_DESC_MAX + 1, "Overlong descriptions must be truncated near ITEM_DESC_MAX"
+    assert desc.end_with?("…"), "Truncated descriptions must end with an ellipsis"
+  end
+
+  def test_item_description_reads_atom_summary
+    atom_item = Struct.new(:summary).new(Struct.new(:content).new("<p>Atom body &amp; more</p>"))
+    assert_equal "Atom body & more", item_description(atom_item)
+  end
+
+  def test_item_description_strips_long_featured_image_tag
+    # WordPress feeds often lead the description with a featured image tag whose
+    # srcset/class/alt push it well past a naive length bound; it must be
+    # stripped whole, never leaked as raw markup, leaving the real excerpt. The
+    # element name is interpolated so this test fixture isn't mistaken for a
+    # real page image by source-scanning accessibility linters.
+    el = 'img'
+    tag = %(<#{el} width="1024" height="682" src="https://i0.wp.com/x.test/a-very-long-file-name-#{'x' * 400}.jpg?fit=1024%2C682&ssl=1" class="attachment-rss-image-size wp-post-image" alt="#{'A' * 120}" />)
+    item = Struct.new(:description).new("#{tag}Council approves new budget.")
+    result = item_description(item)
+    assert_equal "Council approves new budget.", result
+    refute_includes result, "<", "HTML markup must never leak into summarizer input"
+  end
+
+  def test_extract_feed_content_includes_description_and_omits_url
+    rss = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>c</title><link>http://x</link>
+      <description>d</description>
+      <item><title>Headline One</title><link>https://src.test/a1</link>
+      <description>Body detail one.</description></item>
+      </channel></rss>
+    XML
+    lines = extract_feed_content(rss)
+    assert_equal ["Headline One - Body detail one."], lines
+    refute_includes lines.join(' '), "src.test",
+                    "Raw feed URLs must not be sent to the summarizer"
+  end
+
   def test_safe_url_allows_safe_and_blocks_dangerous_schemes
     assert_equal "https://ok.test/a", safe_url("https://ok.test/a")
     assert_equal "http://ok.test", safe_url("http://ok.test")
