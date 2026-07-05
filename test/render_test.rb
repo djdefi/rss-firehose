@@ -316,4 +316,52 @@ class RenderTest < Minitest::Test
     assert_equal "No articles available for summarization.", result,
                  "An all-offline set has no real content and must not be sent to the AI"
   end
+
+  def test_feed_falls_back_to_offline_when_fetch_keeps_failing
+    # Stub the fetch/parse step to always fail (nil covers non-200, network
+    # errors, and parse errors) and confirm feed() retries then falls back to
+    # an offline placeholder instead of raising. No network is touched.
+    original = method(:fetch_and_parse_feed)
+    begin
+      Object.send(:define_method, :fetch_and_parse_feed) { |_url| nil }
+      result = feed('http://example.com/down')
+      assert feed_offline?(result),
+             "feed() should return an offline placeholder when every fetch attempt fails"
+    ensure
+      Object.send(:define_method, :fetch_and_parse_feed, original.unbind)
+    end
+  end
+
+  # --- YubaNet breaking-news parser (fixture-based, no network) ------------
+
+  YUBANET_FIXTURE = <<~HTML
+    <div class="entry-content">
+      <p class="wp-block-paragraph"></p>
+      <p class="wp-block-paragraph"><strong>July 4, 2026 at 9:40 PM </strong>2026 Fourth of July Parade &#8211; the <a href="https://yubanet.com/regional/2026-fourth-of-july-parade-in-nevada-city/">photo gallery</a> is live.</p>
+      <p class="wp-block-paragraph"><strong>July 4, 2026 at 9:30 PM</strong>Fireworks have started on the Dorsey Drive overpass.</p>
+    </div>
+  HTML
+
+  def test_parse_breaking_news_extracts_wordpress_block_entries
+    entries = parse_breaking_news(YUBANET_FIXTURE, 'https://yubanet.com/featured/now/')
+    assert_equal 2, entries.size, "Both wp-block-paragraph entries should be extracted"
+    assert_equal 'July 4, 2026 at 9:40 PM', entries[0][:timestamp]
+    assert_equal 'https://yubanet.com/featured/now/', entries[0][:link]
+  end
+
+  def test_parse_breaking_news_strips_nested_tags_and_decodes_entities
+    entries = parse_breaking_news(YUBANET_FIXTURE, 'u')
+    content = entries[0][:content]
+    assert_includes content, 'photo gallery', "Anchor text should be preserved"
+    refute_includes content, '<a', "Nested anchor tag should be stripped"
+    refute_includes content, 'href', "Anchor attributes should be stripped"
+    assert_includes content, '–', "&#8211; should be decoded to an en-dash"
+    refute_includes content, '&#8211;', "Raw HTML entity should not remain"
+  end
+
+  def test_parse_breaking_news_returns_empty_without_entries
+    assert_equal [], parse_breaking_news('<p>no timestamped entries here</p>', 'u')
+    assert_equal [], parse_breaking_news('', 'u')
+    assert_equal [], parse_breaking_news(nil, 'u')
+  end
 end
