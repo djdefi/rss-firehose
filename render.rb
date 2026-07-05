@@ -7,6 +7,7 @@ require 'httparty'
 require 'json'
 require 'time'
 require 'fileutils'
+require 'cgi'
 
 CACHE_FILE = 'cache/ai_summary_cache.json'
 
@@ -388,13 +389,20 @@ def fetch_yubanet_breaking_news
       entries = []
       html_content = response.body
       
-      # Look for patterns like: <p><strong>August 13, 2025 at 2:44 PM</strong> The power outage...
-      # Use a safer regex pattern to avoid ReDoS vulnerabilities
-      html_content.scan(/<p><strong>([^<]{1,200}(?:AM|PM)[^<]{0,50})<\/strong>\s*([^<]{1,2000})<\/p>/m) do |timestamp, content|
-        # Clean up the content by removing HTML tags and extra whitespace
-        # Use gsub with a character class to safely remove HTML tags
-        clean_content = content.gsub(/<[^>]{1,50}>/, '').strip
-        clean_timestamp = timestamp.strip
+      # Look for entries like:
+      #   <p class="wp-block-paragraph"><strong>July 4, 2026 at 9:40 PM </strong>content <a href="…">link</a>.</p>
+      # YubaNet moved to WordPress block markup, so the <p> now carries a class
+      # attribute and the content can contain nested tags (e.g. <a>). Allow the
+      # optional attributes and capture the inner HTML non-greedily (bounded to
+      # stay ReDoS-safe), then strip tags below.
+      html_content.scan(%r{<p[^>]{0,200}>\s*<strong>([^<]{1,200}(?:AM|PM)[^<]{0,50})</strong>\s*(.{1,2000}?)</p>}m) do |timestamp, content|
+        # Clean up the content by removing HTML tags and extra whitespace.
+        # Tags (including long <a href="…"> anchors) are bounded to stay
+        # ReDoS-safe while still covering real-world href lengths. Decode HTML
+        # entities (e.g. &#8211;, &hellip;) so the content matches the already
+        # decoded RSS item text before the template re-escapes it for output.
+        clean_content = CGI.unescapeHTML(content.gsub(/<[^>]{1,300}>/, '')).strip
+        clean_timestamp = CGI.unescapeHTML(timestamp).strip
         
         # Skip very short or empty content
         next if clean_content.length < 10
