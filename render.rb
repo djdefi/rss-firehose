@@ -21,6 +21,14 @@ FEED_OFFLINE_TITLE = 'Feed currently offline'
 # with FEED_RETRY_DELAY (e.g. 0 in tests).
 FEED_RETRY_DELAY = (ENV['FEED_RETRY_DELAY'] || '2').to_f
 
+# Canned summarizer outputs that mean "no real content was produced". These
+# must never be cached, or a degraded (e.g. all-feeds-offline) render would
+# freeze for the whole cache TTL on rapid reruns.
+PLACEHOLDER_SUMMARIES = [
+  'No content available for summarization.',
+  'No articles available for summarization.'
+].freeze
+
 def title
   title = ENV['RSS_TITLE'] || 'News Firehose'
   title.strip.empty? ? 'News Firehose' : title
@@ -94,34 +102,43 @@ def render_manifest
   end
 end
 
-# Get the feeds and parse them. We don't validate because some feeds are
-# malformed slightly and break the parser.
-def feed(url)
-  begin
-    response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
-    rss_content = RSS::Parser.parse(response.body, false) if response.code == 200
-    # If the feed is empty or nil, retry once
-    if (rss_content.nil? || rss_content.items.empty?)
-      puts "Feed from '#{url}' returned no items, retrying once..."
-      sleep(FEED_RETRY_DELAY) if FEED_RETRY_DELAY.positive?
-      response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
-      rss_content = RSS::Parser.parse(response.body, false) if response.code == 200
-    end
-    # If still empty or nil, create a placeholder RSS object
-    if rss_content.nil? || rss_content.items.empty?
-      puts "Feed from '#{url}' failed after retry. Response Code: #{response.code}"
-      puts "Response Body: #{response.body[0..500]}" # Log first 500 characters of the response body for debugging
-      rss_content = create_offline_feed(url)
-    end
+# Fetch a feed URL and parse it, returning the RSS object or nil on ANY
+# failure — non-200, network error (timeout/reset/DNS), or parse error. Kept
+# separate from feed() so a transient failure of either kind can be retried by
+# simply calling it again.
+def fetch_and_parse_feed(url)
+  response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
+  return nil unless response.code == 200
 
-    rss_content
-  rescue HTTParty::Error, RSS::Error => e
-    puts "Error fetching or parsing feed from '#{url}': #{e.class} - #{e.message}"
-    create_offline_feed(url)
-  rescue => e
-    puts "General error with feed '#{url}': #{e.message}"
-    create_offline_feed(url)
+  RSS::Parser.parse(response.body, false)
+rescue HTTParty::Error, RSS::Error => e
+  puts "Error fetching or parsing feed from '#{url}': #{e.class} - #{e.message}"
+  nil
+rescue => e
+  puts "General error with feed '#{url}': #{e.message}"
+  nil
+end
+
+# Get the feeds and parse them. We don't validate because some feeds are
+# malformed slightly and break the parser. A single retry (after a brief
+# FEED_RETRY_DELAY) covers a transient upstream failure of any kind — a
+# timeout/reset, a non-200, or an empty/partial response — before falling back
+# to an offline placeholder.
+def feed(url)
+  rss_content = fetch_and_parse_feed(url)
+
+  if rss_content.nil? || rss_content.items.empty?
+    puts "Feed from '#{url}' returned no items, retrying once..."
+    sleep(FEED_RETRY_DELAY) if FEED_RETRY_DELAY.positive?
+    rss_content = fetch_and_parse_feed(url)
   end
+
+  if rss_content.nil? || rss_content.items.empty?
+    puts "Feed from '#{url}' failed after retry; using offline placeholder."
+    rss_content = create_offline_feed(url)
+  end
+
+  rss_content
 end
 
 # Create a placeholder RSS feed object for offline/failed feeds
@@ -154,7 +171,8 @@ rescue StandardError
   false
 end
 
-
+# Apply the block to each item across a bounded thread pool, returning an
+# (unordered) Hash of { item => block_result }. Used to pipeline the one-shot's
 # independent network I/O — feed fetches and the per-feed/overall/breaking AI
 # summary calls — so wall-clock is roughly the slowest single call instead of
 # the sum of them all. Concurrency is bounded (default 8, override with
@@ -378,55 +396,55 @@ rescue => e
   []
 end
 
+# Parse YubaNet "Happening Now" HTML into breaking-news entries. Pure (no I/O)
+# so it can be unit-tested against fixture HTML without hitting the network.
+#
+# YubaNet uses WordPress block markup, so entries look like:
+#   <p class="wp-block-paragraph"><strong>July 4, 2026 at 9:40 PM </strong>content <a href="…">link</a>.</p>
+# The <p> may carry attributes and the content may contain nested tags (e.g.
+# <a>). Attributes are allowed and the inner HTML is captured non-greedily and
+# bounded (ReDoS-safe), then tags are stripped and HTML entities decoded (so
+# "&#8211;" isn't double-escaped once the template re-escapes for output).
+def parse_breaking_news(html_content, url)
+  entries = []
+  return entries unless html_content.is_a?(String)
+
+  html_content.scan(%r{<p[^>]{0,200}>\s*<strong>([^<]{1,200}(?:AM|PM)[^<]{0,50})</strong>\s*(.{1,2000}?)</p>}m) do |timestamp, content|
+    clean_content = CGI.unescapeHTML(content.gsub(/<[^>]{1,300}>/, '')).strip
+    clean_timestamp = CGI.unescapeHTML(timestamp).strip
+
+    # Skip very short or empty content
+    next if clean_content.length < 10
+
+    entries << {
+      timestamp: clean_timestamp,
+      content: clean_content,
+      link: url
+    }
+  end
+
+  entries
+end
+
 # Fetch and parse YubaNet breaking news from featured/now page
 def fetch_yubanet_breaking_news
-  begin
-    url = 'https://yubanet.com/featured/now/'
-    response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
-    
-    if response.code == 200
-      # Extract breaking news entries with timestamps
-      entries = []
-      html_content = response.body
-      
-      # Look for entries like:
-      #   <p class="wp-block-paragraph"><strong>July 4, 2026 at 9:40 PM </strong>content <a href="…">link</a>.</p>
-      # YubaNet moved to WordPress block markup, so the <p> now carries a class
-      # attribute and the content can contain nested tags (e.g. <a>). Allow the
-      # optional attributes and capture the inner HTML non-greedily (bounded to
-      # stay ReDoS-safe), then strip tags below.
-      html_content.scan(%r{<p[^>]{0,200}>\s*<strong>([^<]{1,200}(?:AM|PM)[^<]{0,50})</strong>\s*(.{1,2000}?)</p>}m) do |timestamp, content|
-        # Clean up the content by removing HTML tags and extra whitespace.
-        # Tags (including long <a href="…"> anchors) are bounded to stay
-        # ReDoS-safe while still covering real-world href lengths. Decode HTML
-        # entities (e.g. &#8211;, &hellip;) so the content matches the already
-        # decoded RSS item text before the template re-escapes it for output.
-        clean_content = CGI.unescapeHTML(content.gsub(/<[^>]{1,300}>/, '')).strip
-        clean_timestamp = CGI.unescapeHTML(timestamp).strip
-        
-        # Skip very short or empty content
-        next if clean_content.length < 10
-        
-        entries << {
-          timestamp: clean_timestamp,
-          content: clean_content,
-          link: url
-        }
-      end
-      
-      puts "Fetched #{entries.size} breaking news entries from YubaNet"
-      entries
-    else
-      puts "Failed to fetch YubaNet breaking news: HTTP #{response.code}"
-      []
-    end
-  rescue HTTParty::Error => e
-    puts "HTTP error fetching YubaNet breaking news: #{e.message}"
-    []
-  rescue => e
-    puts "General error fetching YubaNet breaking news: #{e.message}"
+  url = 'https://yubanet.com/featured/now/'
+  response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
+
+  if response.code == 200
+    entries = parse_breaking_news(response.body, url)
+    puts "Fetched #{entries.size} breaking news entries from YubaNet"
+    entries
+  else
+    puts "Failed to fetch YubaNet breaking news: HTTP #{response.code}"
     []
   end
+rescue HTTParty::Error => e
+  puts "HTTP error fetching YubaNet breaking news: #{e.message}"
+  []
+rescue => e
+  puts "General error fetching YubaNet breaking news: #{e.message}"
+  []
 end
 
 # Summarize breaking news content using AI
@@ -560,9 +578,10 @@ else
   overall_summary = summaries[[:overall, nil]]
   breaking_news_summary = summaries[[:breaking, nil]]
 
-  # Only cache if we actually got a useful overall summary, so an error
-  # placeholder never gets persisted for the next 6 hours.
-  if overall_summary && !overall_summary.include?("unavailable") && !overall_summary.include?("failed")
+  # Only cache if we actually got a useful overall summary, so neither an error
+  # placeholder nor a degraded "no content" render gets persisted for the TTL.
+  if overall_summary && !PLACEHOLDER_SUMMARIES.include?(overall_summary) &&
+     !overall_summary.include?("unavailable") && !overall_summary.include?("failed")
     cache_summaries(overall_summary, feed_summaries, breaking_news_summary)
     puts "Generated and cached new summaries."
   else
