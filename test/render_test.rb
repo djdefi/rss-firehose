@@ -537,6 +537,64 @@ class RenderTest < Minitest::Test
            "with no cache and a failed fetch, feed() must use the offline placeholder"
   end
 
+  # --- Fallback sources (primary throttled/blocked from the runner) ---------
+
+  def test_feed_uses_cached_fallback_when_primary_has_no_content
+    primary  = 'http://127.0.0.1:9/primary-down'
+    fallback = 'http://127.0.0.1:9/fallback-source'
+    seed = <<~XML
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>Fallback Source</title><link>http://x</link>
+      <description>d</description>
+      <item><title>From the fallback</title><link>http://x/1</link></item>
+      </channel></rss>
+    XML
+    save_cached_feed(fallback, seed)
+    result = feed(primary, [fallback])
+    refute feed_offline?(result),
+           "a reachable/cached fallback must be used before the offline placeholder"
+    assert_equal "From the fallback", result.items.first.title.to_s
+  ensure
+    [primary, fallback].each do |u|
+      p = feed_cache_path(u)
+      File.delete(p) if File.exist?(p)
+    end
+  end
+
+  def test_feed_prefers_cached_primary_over_fallback
+    primary  = 'http://127.0.0.1:9/primary-has-cache'
+    fallback = 'http://127.0.0.1:9/fallback-has-cache'
+    save_cached_feed(primary, <<~XML)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>Primary Cached</title><link>http://x</link>
+      <description>d</description><item><title>Primary item</title><link>http://x/1</link></item>
+      </channel></rss>
+    XML
+    save_cached_feed(fallback, <<~XML)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>Fallback Cached</title><link>http://y</link>
+      <description>d</description><item><title>Fallback item</title><link>http://y/1</link></item>
+      </channel></rss>
+    XML
+    result = feed(primary, [fallback])
+    assert_equal "Primary item", result.items.first.title.to_s,
+                 "the primary's own last-good cache must win over a fallback's cache"
+  ensure
+    [primary, fallback].each do |u|
+      p = feed_cache_path(u)
+      File.delete(p) if File.exist?(p)
+    end
+  end
+
+  def test_feed_offline_when_primary_and_fallback_both_unavailable
+    primary  = 'http://127.0.0.1:9/p-none'
+    fallback = 'http://127.0.0.1:9/f-none'
+    [primary, fallback].each { |u| File.delete(feed_cache_path(u)) if File.exist?(feed_cache_path(u)) }
+    result = feed(primary, [fallback])
+    assert feed_offline?(result),
+           "with no live source and no cache anywhere, feed() must use the offline placeholder"
+  end
+
   def test_summarize_news_skips_offline_feed_returning_nil
     # Must short-circuit before any AI call, so this needs no network/token.
     offline = create_offline_feed('http://example.com/down')

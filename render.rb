@@ -21,6 +21,18 @@ CACHE_FILE = 'cache/ai_summary_cache.json'
 # actions/cache, so no workflow change is needed.
 FEED_CACHE_DIR = 'cache/feeds'
 
+# Fallback sources for a primary feed that is throttled/blocked from GitHub's
+# datacenter IPs. Some regional papers (e.g. The Union) return HTTP 429/403 to
+# the runner even though they work from residential IPs; when the primary has
+# no live response and no cache, we pull the same beat from a runner-reachable
+# alternate before showing an offline placeholder. Keyed by primary URL; the
+# rendered card then naturally shows the alternate's own name/links.
+FEED_FALLBACKS = {
+  'https://www.theunion.com/search/?f=rss&t=article&c=news' => [
+    'https://sierranevadaally.org/feed/'
+  ]
+}.freeze
+
 # Channel title stamped on the placeholder feed built for an offline/failed
 # source (see create_offline_feed). Callers use feed_offline? to detect it.
 FEED_OFFLINE_TITLE = 'Feed currently offline'
@@ -196,9 +208,10 @@ end
 # Get the feeds and parse them. We don't validate because some feeds are
 # malformed slightly and break the parser. A single retry (after a brief
 # FEED_RETRY_DELAY) covers a transient upstream failure of any kind — a
-# timeout/reset, a non-200, or an empty/partial response — before falling back
-# to an offline placeholder.
-def feed(url)
+# timeout/reset, a non-200, or an empty/partial response. When the primary is
+# still down we degrade gracefully through: live fallback source → primary's
+# last-good cache → fallback's cache → offline placeholder.
+def feed(url, fallbacks = FEED_FALLBACKS.fetch(url, []))
   rss_content = fetch_and_parse_feed(url)
 
   if rss_content.nil? || rss_content.items.empty?
@@ -206,19 +219,35 @@ def feed(url)
     sleep(FEED_RETRY_DELAY) if FEED_RETRY_DELAY.positive?
     rss_content = fetch_and_parse_feed(url)
   end
+  return rss_content if rss_content && !rss_content.items.empty?
 
-  if rss_content.nil? || rss_content.items.empty?
-    cached = load_cached_feed(url)
-    if cached
-      puts "Feed from '#{url}' failed after retry; serving last-good cached copy."
-      return cached
-    end
+  # Primary is down. Priority: a FRESH alternate source beats a STALE cache, so
+  # the beat stays current — try live fallbacks, then the primary's last-good
+  # cache, then the fallbacks' caches, and only then an offline placeholder.
+  fallbacks.each do |fb_url|
+    fb = fetch_and_parse_feed(fb_url)
+    next unless fb && !fb.items.empty?
 
-    puts "Feed from '#{url}' failed after retry; using offline placeholder."
-    rss_content = create_offline_feed(url)
+    puts "Feed '#{url}' unavailable; using live fallback source '#{fb_url}'."
+    return fb
   end
 
-  rss_content
+  cached = load_cached_feed(url)
+  if cached
+    puts "Feed from '#{url}' failed after retry; serving last-good cached copy."
+    return cached
+  end
+
+  fallbacks.each do |fb_url|
+    fb_cached = load_cached_feed(fb_url)
+    next unless fb_cached
+
+    puts "Feed '#{url}' unavailable; serving cached fallback '#{fb_url}'."
+    return fb_cached
+  end
+
+  puts "Feed from '#{url}' failed after retry; using offline placeholder."
+  create_offline_feed(url)
 end
 
 # Create a placeholder RSS feed object for offline/failed feeds
