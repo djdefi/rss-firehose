@@ -9,14 +9,21 @@
   <link rel="apple-touch-icon" href="img/icon.png">
   <link type="text/css" rel="stylesheet" href="main.css"/>
   <link rel="manifest" href="./manifest.json">
-  <title><%= title %></title>
+  <title><%= html_escape(page_title || title) %></title>
   <meta name="description" content="<%= description %>"/>
 </head>
 <body>
 <main class="container">
   <header class="site-header">
-    <h1 class="site-title" aria-label="Page Title"><%= title %></h1>
+    <h1 class="site-title" aria-label="Page Title"><%= html_escape(page_title || title) %></h1>
     <p class="site-meta" aria-label="Last updated">Updated <%= Time.now.strftime('%F %R %Z') -%></p>
+    <% if nav_links && !nav_links.empty? %>
+    <nav class="page-nav" aria-label="Site sections">
+      <% nav_links.each do |label, href| -%>
+        <a href="<%= html_escape(href) %>"><%= html_escape(label) %></a>
+      <% end -%>
+    </nav>
+    <% end %>
     <ul class="stat-chips" aria-label="Feed statistics">
       <li class="chip"><strong><%= feeds.size %></strong> <%= feeds.size == 1 ? 'feed' : 'feeds' %></li>
       <li class="chip"><strong><%= feeds.sum { |_url, parsed| parsed.items.count } %></strong> stories</li>

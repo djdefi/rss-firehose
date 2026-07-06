@@ -61,6 +61,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.API_TOKEN }}
         FORCE_REGENERATE: ${{ github.event.inputs.force_regenerate || 'false' }}
+        RENDER_REGIONAL: '1' # Also build public/regional.html from urls-regional.txt
 
     # Saves the AI summary cache under a fresh per-run key so it always updates.
     # Old entries are evicted by GitHub's cache retention policy.
