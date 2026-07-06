@@ -3,6 +3,10 @@ name: Trivy-scan
 on:
   workflow_dispatch:
 
+concurrency:
+  group: trivy-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build

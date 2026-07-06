@@ -20,6 +20,10 @@ on:
   schedule:  # Triggers the workflow on a schedule (twice a day)
     - cron:  '0 3,15 * * *'
 
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   pages-build:
