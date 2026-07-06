@@ -595,6 +595,51 @@ class RenderTest < Minitest::Test
            "with no live source and no cache anywhere, feed() must use the offline placeholder"
   end
 
+  # --- Regional / secondary page --------------------------------------------
+
+  def test_regional_urls_empty_without_flag_is_hermetic
+    saved = ENV.values_at('RSS_REGIONAL_URLS', 'RENDER_REGIONAL')
+    ENV.delete('RSS_REGIONAL_URLS')
+    ENV.delete('RENDER_REGIONAL')
+    assert_empty regional_urls,
+                 "regional feeds must be off by default so the test suite makes no extra fetches"
+  ensure
+    ENV['RSS_REGIONAL_URLS'], ENV['RENDER_REGIONAL'] = saved
+  end
+
+  def test_regional_urls_from_env_parses_and_validates
+    saved = ENV['RSS_REGIONAL_URLS']
+    ENV['RSS_REGIONAL_URLS'] = 'https://a.example/feed/, not-a-url ,https://b.example/feed/'
+    assert_equal ['https://a.example/feed/', 'https://b.example/feed/'], regional_urls,
+                 "regional_urls must split, trim, drop empties, and keep only http(s) URLs"
+  ensure
+    saved ? ENV['RSS_REGIONAL_URLS'] = saved : ENV.delete('RSS_REGIONAL_URLS')
+  end
+
+  def test_render_html_writes_secondary_page_with_title_and_nav
+    feed = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>Sierra Sun</title><link>http://x</link>
+      <description>d</description>
+      <item><title>Tahoe headline</title><link>http://x/1</link></item>
+      </channel></rss>
+    XML
+    out = 'public/regional_test_output.html'
+    render_html({ 'http://x/feed' => feed }, nil, {}, [], nil, [],
+                output_path: out,
+                page_title: 'News Firehose · Regional & Fire',
+                show_nav: true)
+    html = File.read(out)
+    assert_includes html, '<title>News Firehose · Regional &amp; Fire</title>',
+                     "secondary page must use the page_title override"
+    assert_includes html, 'class="page-nav"', "secondary page must render the inter-page nav"
+    assert_includes html, 'href="regional.html"', "nav must link to the regional page"
+    assert_includes html, 'Tahoe headline', "secondary page must render its feed items"
+    refute_includes html, 'Feed Summary', "regional page is lightweight: no per-feed AI summary box"
+  ensure
+    File.delete(out) if out && File.exist?(out)
+  end
+
   def test_summarize_news_skips_offline_feed_returning_nil
     # Must short-circuit before any AI call, so this needs no network/token.
     offline = create_offline_feed('http://example.com/down')

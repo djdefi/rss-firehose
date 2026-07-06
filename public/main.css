@@ -93,6 +93,29 @@ a:hover {
     font-size: .9rem;
 }
 
+.page-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 14px;
+}
+
+.page-nav a {
+    padding: 4px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: .82rem;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.page-nav a:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
 .stat-chips {
     display: flex;
     flex-wrap: wrap;

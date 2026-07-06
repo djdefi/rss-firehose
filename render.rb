@@ -122,6 +122,23 @@ def rss_backup_urls
   urls.select { |url| url.match?(/\Ahttps?:\/\//) }
 end
 
+# Feeds for the secondary "Regional & Fire" page (Truckee/Tahoe outlets +
+# InciWeb fire incidents). Kept off the lean main page and off by default so
+# the test suite stays hermetic/fast: enabled only when RSS_REGIONAL_URLS is set
+# (comma-separated, takes precedence) or RENDER_REGIONAL=1 selects urls-regional.txt.
+# The deploy workflow sets RENDER_REGIONAL=1. Every listed feed must be
+# runner-verified (many regional feeds are datacenter-IP-blocked).
+def regional_urls
+  raw = if ENV['RSS_REGIONAL_URLS']
+          ENV['RSS_REGIONAL_URLS'].split(',')
+        elsif ENV['RENDER_REGIONAL'] == '1' && File.exist?('urls-regional.txt')
+          File.readlines('urls-regional.txt')
+        else
+          []
+        end
+  raw.map(&:strip).reject(&:empty?).select { |url| url.match?(%r{\Ahttps?://}i) }
+end
+
 def description
   desc = ENV['RSS_DESCRIPTION'] || 'View the latest news.'
   desc.strip.empty? ? 'View the latest news.' : desc
@@ -131,11 +148,16 @@ def analytics_ua
   ENV['ANALYTICS_UA']
 end
 
-def render_html(feeds, overall_summary, feed_summaries, breaking_news = [], breaking_news_summary = nil, weather_alerts = [])
+# Render a feed page from the shared template. output_path/page_title/show_nav
+# let the same template drive both the main index and the secondary regional
+# page; on the main page they default so the output is unchanged. show_nav emits
+# the small two-link inter-page nav (static text, so it passes a11y linting).
+def render_html(feeds, overall_summary, feed_summaries, breaking_news = [], breaking_news_summary = nil, weather_alerts = [],
+                output_path: 'public/index.html', page_title: nil, show_nav: false)
   begin
     html = File.open('templates/index.html.erb').read
     template = ERB.new(html, trim_mode: '-')
-    File.open('public/index.html', 'w') do |f|
+    File.open(output_path, 'w') do |f|
       f.puts template.result(binding)
     end
   rescue => e
@@ -816,7 +838,20 @@ puts "Overall Summary: #{overall_summary}"
 
 begin
   render_manifest
-  render_html(feeds, overall_summary, feed_summaries, breaking_news, breaking_news_summary, weather_alerts)
+
+  regional = regional_urls
+  render_html(feeds, overall_summary, feed_summaries, breaking_news, breaking_news_summary, weather_alerts,
+              show_nav: regional.any?)
+
+  if regional.any?
+    puts "Rendering regional page for #{regional.size} feeds..."
+    regional_feeds = fetch_feeds(regional)
+    render_html(regional_feeds, nil, {}, [], nil, [],
+                output_path: 'public/regional.html',
+                page_title: "#{title} · Regional & Fire",
+                show_nav: true)
+  end
+
   puts "Successfully rendered HTML and manifest files."
 rescue => e
   puts "Error during rendering process: #{e.message}"
