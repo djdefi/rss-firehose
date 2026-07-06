@@ -640,6 +640,53 @@ class RenderTest < Minitest::Test
     File.delete(out) if out && File.exist?(out)
   end
 
+  def test_apply_item_filter_keeps_only_regional_inciweb_items
+    inciweb = 'https://inciweb.wildfire.gov/incidents/rss.xml'
+    feed = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>InciWeb</title><link>http://x</link><description>d</description>
+      <item><title>CACNP Santa Rosa Island Fire</title><link>http://x/1</link><description>State: California</description></item>
+      <item><title>NVELD Grapevine</title><link>http://x/2</link><description>State: Nevada</description></item>
+      <item><title>AZCOF Pocket Fire</title><link>http://x/3</link><description>State: Arizona</description></item>
+      <item><title>UTMLF Babylon Fire</title><link>http://x/4</link><description>State: Utah</description></item>
+      </channel></rss>
+    XML
+    apply_item_filter(inciweb, feed)
+    titles = feed.items.map { |i| i.title.to_s }
+    assert_equal ['CACNP Santa Rosa Island Fire', 'NVELD Grapevine'], titles,
+                 "InciWeb filter must keep only California/Nevada incidents"
+  end
+
+  def test_apply_item_filter_is_noop_for_unfiltered_feed
+    feed = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>C</title><link>http://x</link><description>d</description>
+      <item><title>AZ thing</title><link>http://x/1</link></item></channel></rss>
+    XML
+    apply_item_filter('http://example.com/no-filter', feed)
+    assert_equal 1, feed.items.size, "feeds without a configured filter must pass through untouched"
+  end
+
+  def test_usable_summary_detects_placeholders_and_errors
+    assert usable_summary?('The county approved a new budget.'), "real prose is usable"
+    refute usable_summary?(nil), "nil is not usable"
+    refute usable_summary?(''), "empty string is not usable"
+    refute usable_summary?('No content available for summarization.'), "placeholder is not usable"
+    refute usable_summary?('AI summary unavailable at this time'), "an unavailable error is not usable"
+    refute usable_summary?('Request failed'), "a failed error is not usable"
+  end
+
+  def test_summary_cache_roundtrips_regional_overview
+    FileUtils.rm_f('cache/ai_summary_cache.json')
+    cache_summaries('OVERALL', { 'u' => 'PERFEED' }, 'BREAKING', 'REGIONAL_OVERVIEW')
+    loaded = load_cached_summaries
+    assert_equal 'REGIONAL_OVERVIEW', loaded['regional'],
+                 "the regional overview must round-trip through the summary cache bundle"
+    assert_equal 'OVERALL', loaded['overall'], "existing keys must still round-trip"
+  ensure
+    FileUtils.rm_f('cache/ai_summary_cache.json')
+  end
+
   def test_summarize_news_skips_offline_feed_returning_nil
     # Must short-circuit before any AI call, so this needs no network/token.
     offline = create_offline_feed('http://example.com/down')
