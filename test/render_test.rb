@@ -628,7 +628,7 @@ class RenderTest < Minitest::Test
     render_html({ 'http://x/feed' => feed }, nil, {}, [], nil, [],
                 output_path: out,
                 page_title: 'News Firehose · Regional & Fire',
-                nav_links: [['Main firehose', './'], ['Regional & Fire', 'regional.html']])
+                show_nav: true)
     html = File.read(out)
     assert_includes html, '<title>News Firehose · Regional &amp; Fire</title>',
                      "secondary page must use the page_title override"

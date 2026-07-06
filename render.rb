@@ -148,12 +148,12 @@ def analytics_ua
   ENV['ANALYTICS_UA']
 end
 
-# Render a feed page from the shared template. output_path/page_title/nav_links
+# Render a feed page from the shared template. output_path/page_title/show_nav
 # let the same template drive both the main index and the secondary regional
-# page; on the main page they default so the output is unchanged. nav_links is
-# an array of [label, href] pairs rendered as a small inter-page nav.
+# page; on the main page they default so the output is unchanged. show_nav emits
+# the small two-link inter-page nav (static text, so it passes a11y linting).
 def render_html(feeds, overall_summary, feed_summaries, breaking_news = [], breaking_news_summary = nil, weather_alerts = [],
-                output_path: 'public/index.html', page_title: nil, nav_links: nil)
+                output_path: 'public/index.html', page_title: nil, show_nav: false)
   begin
     html = File.open('templates/index.html.erb').read
     template = ERB.new(html, trim_mode: '-')
@@ -840,9 +840,8 @@ begin
   render_manifest
 
   regional = regional_urls
-  main_nav = regional.any? ? [['Main firehose', './'], ['Regional & Fire', 'regional.html']] : nil
   render_html(feeds, overall_summary, feed_summaries, breaking_news, breaking_news_summary, weather_alerts,
-              nav_links: main_nav)
+              show_nav: regional.any?)
 
   if regional.any?
     puts "Rendering regional page for #{regional.size} feeds..."
@@ -850,7 +849,7 @@ begin
     render_html(regional_feeds, nil, {}, [], nil, [],
                 output_path: 'public/regional.html',
                 page_title: "#{title} · Regional & Fire",
-                nav_links: [['Main firehose', './'], ['Regional & Fire', 'regional.html']])
+                show_nav: true)
   end
 
   puts "Successfully rendered HTML and manifest files."

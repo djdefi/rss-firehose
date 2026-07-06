@@ -17,11 +17,10 @@
   <header class="site-header">
     <h1 class="site-title" aria-label="Page Title"><%= html_escape(page_title || title) %></h1>
     <p class="site-meta" aria-label="Last updated">Updated <%= Time.now.strftime('%F %R %Z') -%></p>
-    <% if nav_links && !nav_links.empty? %>
+    <% if show_nav %>
     <nav class="page-nav" aria-label="Site sections">
-      <% nav_links.each do |label, href| -%>
-        <a href="<%= html_escape(href) %>"><%= html_escape(label) %></a>
-      <% end -%>
+      <a href="./">Main firehose</a>
+      <a href="regional.html">Regional &amp; Fire</a>
     </nav>
     <% end %>
     <ul class="stat-chips" aria-label="Feed statistics">
