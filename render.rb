@@ -33,6 +33,18 @@ FEED_FALLBACKS = {
   ]
 }.freeze
 
+# Optional per-feed item filters: keep only items for which the lambda returns
+# true. InciWeb's RSS is national; we keep just California/Nevada incidents so
+# the regional Fire section stays on-topic. Item titles are prefixed with the
+# 2-letter state code (e.g. "CACNP …" / "NVELD …") and the description carries
+# "State: California".
+FEED_ITEM_FILTERS = {
+  'https://inciweb.wildfire.gov/incidents/rss.xml' => lambda do |item|
+    "#{item.title}".match?(/\A(?:CA|NV)/) ||
+      "#{item.description}".match?(/State:\s*(?:California|Nevada)/)
+  end
+}.freeze
+
 # Channel title stamped on the placeholder feed built for an offline/failed
 # source (see create_offline_feed). Callers use feed_offline? to detect it.
 FEED_OFFLINE_TITLE = 'Feed currently offline'
@@ -347,7 +359,7 @@ def fetch_feeds(urls)
 
   results = parallel_map(urls) do |url|
     begin
-      feed(url)
+      apply_item_filter(url, feed(url))
     rescue StandardError => e
       puts "Unexpected error fetching '#{url}': #{e.message}"
       create_offline_feed(url)
@@ -360,6 +372,20 @@ def fetch_feeds(urls)
     value = results[url]
     ordered[url] = value unless value.nil?
   end
+end
+
+# Apply any configured FEED_ITEM_FILTERS to a parsed feed in place, dropping the
+# items the filter rejects. No-op for feeds without a filter or without items,
+# so it's safe to call on every fetched feed.
+def apply_item_filter(url, parsed)
+  filter = FEED_ITEM_FILTERS[url]
+  return parsed unless filter && parsed.respond_to?(:items) && parsed.items
+
+  parsed.items.delete_if { |item| !filter.call(item) }
+  parsed
+rescue StandardError => e
+  puts "Warning: item filter failed for '#{url}': #{e.message}"
+  parsed
 end
 
 # HTML escape function to prevent XSS attacks
@@ -714,7 +740,7 @@ end
 # overall summary is stored under `summary` for backward compatibility with
 # older single-summary cache files. Only called when the overall summary is
 # usable (see caller), so a fresh cache never persists an error placeholder.
-def cache_summaries(overall_summary, feed_summaries, breaking_news_summary)
+def cache_summaries(overall_summary, feed_summaries, breaking_news_summary, regional_summary = nil)
   return unless overall_summary && !overall_summary.empty?
 
   begin
@@ -724,7 +750,8 @@ def cache_summaries(overall_summary, feed_summaries, breaking_news_summary)
         timestamp: Time.now.utc.iso8601,
         summary: overall_summary,
         feed_summaries: feed_summaries || {},
-        breaking_news_summary: breaking_news_summary
+        breaking_news_summary: breaking_news_summary,
+        regional_summary: regional_summary
       }.to_json)
     end
     puts "Summaries cached successfully"
@@ -733,10 +760,19 @@ def cache_summaries(overall_summary, feed_summaries, breaking_news_summary)
   end
 end
 
+# True when an AI summary is genuine content, not an empty / placeholder / error
+# string. Lets callers hide the summary box (and skip caching) instead of
+# surfacing "No content available…" or an "unavailable"/"failed" error.
+def usable_summary?(summary)
+  summary && !summary.empty? &&
+    !PLACEHOLDER_SUMMARIES.include?(summary) &&
+    !summary.include?('unavailable') && !summary.include?('failed')
+end
+
 # Load the cached summary bundle if present and still within the 6h TTL.
-# Returns { 'overall' =>, 'feeds' =>, 'breaking' => } or nil on miss/expiry/
-# error. Older single-summary cache files (just `summary`) still load — the
-# per-feed and breaking parts are simply treated as empty.
+# Returns { 'overall' =>, 'feeds' =>, 'breaking' =>, 'regional' => } or nil on
+# miss/expiry/error. Older cache files (missing newer keys) still load — the
+# absent parts are simply treated as empty.
 def load_cached_summaries
   # Skip cache if force regeneration is requested
   if ENV['FORCE_REGENERATE'] == 'true'
@@ -756,7 +792,8 @@ def load_cached_summaries
       {
         'overall' => data['summary'],
         'feeds' => data['feed_summaries'] || {},
-        'breaking' => data['breaking_news_summary']
+        'breaking' => data['breaking_news_summary'],
+        'regional' => data['regional_summary']
       }
     else
       puts "Cached summary expired, will generate new one"
@@ -786,6 +823,8 @@ puts "Analytics UA: #{ENV['ANALYTICS_UA'] ? 'configured' : 'not configured'}"
 puts ""
 
 feeds = fetch_feeds(rss_urls)
+regional = regional_urls
+regional_feeds = regional.any? ? fetch_feeds(regional) : {}
 breaking_news = fetch_yubanet_breaking_news
 weather_alerts = fetch_weather_alerts
 cached = load_cached_summaries
@@ -797,23 +836,26 @@ if cached
   overall_summary = cached['overall']
   feed_summaries = cached['feeds'] || {}
   breaking_news_summary = cached['breaking']
+  regional_summary = cached['regional']
   puts "Using cached summaries."
 else
   puts "Generating summaries for #{feeds.size} feeds..."
 
   # Every summary is an independent GitHub Models request, so pipeline them all
-  # (per-feed + overall + breaking) across the bounded pool instead of making
-  # N+2 serial calls. On a 3-feed run this is 5 HTTP round-trips collapsed from
-  # sequential to roughly one call's wall-clock.
+  # (per-feed + overall + breaking + regional overview) across the bounded pool
+  # instead of making N+ serial calls. On a 3-feed run this collapses several
+  # HTTP round-trips from sequential to roughly one call's wall-clock.
   jobs = feeds.keys.map { |url| [:feed, url] }
   jobs << [:overall, nil]
   jobs << [:breaking, nil]
+  jobs << [:regional, nil] if regional_feeds.any?
 
   summaries = parallel_map(jobs) do |(kind, url)|
     case kind
     when :feed     then summarize_news(feeds[url])
     when :overall  then summarize_overall_news(feeds.values)
     when :breaking then summarize_breaking_news(breaking_news)
+    when :regional then summarize_overall_news(regional_feeds.values)
     end
   end
 
@@ -822,12 +864,12 @@ else
   end
   overall_summary = summaries[[:overall, nil]]
   breaking_news_summary = summaries[[:breaking, nil]]
+  regional_summary = regional_feeds.any? ? summaries[[:regional, nil]] : nil
 
   # Only cache if we actually got a useful overall summary, so neither an error
   # placeholder nor a degraded "no content" render gets persisted for the TTL.
-  if overall_summary && !PLACEHOLDER_SUMMARIES.include?(overall_summary) &&
-     !overall_summary.include?("unavailable") && !overall_summary.include?("failed")
-    cache_summaries(overall_summary, feed_summaries, breaking_news_summary)
+  if usable_summary?(overall_summary)
+    cache_summaries(overall_summary, feed_summaries, breaking_news_summary, regional_summary)
     puts "Generated and cached new summaries."
   else
     puts "Generated summaries but not caching due to errors."
@@ -839,14 +881,12 @@ puts "Overall Summary: #{overall_summary}"
 begin
   render_manifest
 
-  regional = regional_urls
   render_html(feeds, overall_summary, feed_summaries, breaking_news, breaking_news_summary, weather_alerts,
               show_nav: regional.any?)
 
   if regional.any?
     puts "Rendering regional page for #{regional.size} feeds..."
-    regional_feeds = fetch_feeds(regional)
-    render_html(regional_feeds, nil, {}, [], nil, [],
+    render_html(regional_feeds, (regional_summary if usable_summary?(regional_summary)), {}, [], nil, [],
                 output_path: 'public/regional.html',
                 page_title: "#{title} · Regional & Fire",
                 show_nav: true)
