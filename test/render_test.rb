@@ -474,6 +474,69 @@ class RenderTest < Minitest::Test
     assert feed_offline?(offline), "create_offline_feed output should be detected as offline"
   end
 
+  # --- Last-good feed cache (resilience vs. intermittent WAF throttling) ----
+
+  def test_feed_cache_save_and_load_roundtrip
+    url = 'https://example.test/last-good-roundtrip'
+    body = <<~XML
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>Cached Feed</title><link>http://x</link>
+      <description>d</description>
+      <item><title>Cached headline</title><link>http://x/1</link>
+      <description>Body</description></item>
+      </channel></rss>
+    XML
+    save_cached_feed(url, body)
+    loaded = load_cached_feed(url)
+    refute_nil loaded, "a saved feed body must load back"
+    assert_equal 1, loaded.items.size
+    assert_equal "Cached headline", loaded.items.first.title.to_s
+  ensure
+    path = feed_cache_path(url)
+    File.delete(path) if File.exist?(path)
+  end
+
+  def test_load_cached_feed_returns_nil_when_absent
+    assert_nil load_cached_feed('https://example.test/never-cached-xyz'),
+               "an uncached URL must return nil, not raise"
+  end
+
+  def test_save_cached_feed_ignores_empty_body
+    url = 'https://example.test/empty-body'
+    save_cached_feed(url, '')
+    refute File.exist?(feed_cache_path(url)), "empty bodies must not be cached"
+  end
+
+  def test_feed_serves_last_good_cache_when_live_fetch_fails
+    # Unreachable URL => both fetch attempts fail fast (connection refused),
+    # exercising the cache fallback without any real upstream.
+    url = 'http://127.0.0.1:9/unreachable-feed'
+    body = <<~XML
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>Live Cache Feed</title><link>http://x</link>
+      <description>d</description>
+      <item><title>Served from cache</title><link>http://x/1</link></item>
+      </channel></rss>
+    XML
+    save_cached_feed(url, body)
+    result = feed(url)
+    refute feed_offline?(result),
+           "with a last-good cache, a failed fetch must NOT fall back to the offline placeholder"
+    assert_equal "Served from cache", result.items.first.title.to_s
+  ensure
+    path = feed_cache_path(url)
+    File.delete(path) if File.exist?(path)
+  end
+
+  def test_feed_uses_offline_placeholder_when_no_cache
+    url = 'http://127.0.0.1:9/never-cached-unreachable'
+    path = feed_cache_path(url)
+    File.delete(path) if File.exist?(path)
+    result = feed(url)
+    assert feed_offline?(result),
+           "with no cache and a failed fetch, feed() must use the offline placeholder"
+  end
+
   def test_summarize_news_skips_offline_feed_returning_nil
     # Must short-circuit before any AI call, so this needs no network/token.
     offline = create_offline_feed('http://example.com/down')

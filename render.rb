@@ -8,8 +8,18 @@ require 'json'
 require 'time'
 require 'fileutils'
 require 'cgi'
+require 'digest'
 
 CACHE_FILE = 'cache/ai_summary_cache.json'
+
+# Directory of last-good raw feed bodies. Many regional news sites sit behind a
+# WAF that intermittently throttles GitHub's datacenter IPs (observed: HTTP
+# 202/403/429 with an empty body minutes after a clean 200). When a live fetch
+# is throttled, we fall back to the most recent successfully-fetched copy so
+# readers see real content instead of an offline placeholder. Lives under the
+# gitignored cache/ dir, which the workflow already persists across runs via
+# actions/cache, so no workflow change is needed.
+FEED_CACHE_DIR = 'cache/feeds'
 
 # Channel title stamped on the placeholder feed built for an offline/failed
 # source (see create_offline_feed). Callers use feed_offline? to detect it.
@@ -141,12 +151,45 @@ def fetch_and_parse_feed(url)
   response = HTTParty.get(url, timeout: 60, headers: { 'User-Agent' => 'rss-firehose feed aggregator' })
   return nil unless response.code == 200
 
-  RSS::Parser.parse(response.body, false)
+  parsed = RSS::Parser.parse(response.body, false)
+  # Only cache a body we know is good (parsed and non-empty) so a throttled
+  # response that happens to arrive as HTTP 200 can't overwrite the last-good copy.
+  save_cached_feed(url, response.body) if parsed && !parsed.items.empty?
+  parsed
 rescue HTTParty::Error, RSS::Error => e
   puts "Error fetching or parsing feed from '#{url}': #{e.class} - #{e.message}"
   nil
 rescue => e
   puts "General error with feed '#{url}': #{e.message}"
+  nil
+end
+
+# Filesystem path of the last-good cached body for a feed URL. The URL is
+# hashed so the filename is always filesystem-safe regardless of query strings.
+def feed_cache_path(url)
+  File.join(FEED_CACHE_DIR, "#{Digest::SHA1.hexdigest(url.to_s)}.xml")
+end
+
+# Persist a known-good raw feed body for later reuse. Fails soft: a cache write
+# problem must never break rendering.
+def save_cached_feed(url, body)
+  return if body.nil? || body.to_s.empty?
+
+  FileUtils.mkdir_p(FEED_CACHE_DIR)
+  File.write(feed_cache_path(url), body)
+rescue StandardError => e
+  puts "Could not cache feed '#{url}': #{e.message}"
+end
+
+# Load and parse the last-good cached body for a feed, or nil when there is no
+# usable cache (missing file, unparseable, or empty).
+def load_cached_feed(url)
+  path = feed_cache_path(url)
+  return nil unless File.exist?(path)
+
+  parsed = RSS::Parser.parse(File.read(path), false)
+  parsed if parsed && !parsed.items.empty?
+rescue StandardError
   nil
 end
 
@@ -165,6 +208,12 @@ def feed(url)
   end
 
   if rss_content.nil? || rss_content.items.empty?
+    cached = load_cached_feed(url)
+    if cached
+      puts "Feed from '#{url}' failed after retry; serving last-good cached copy."
+      return cached
+    end
+
     puts "Feed from '#{url}' failed after retry; using offline placeholder."
     rss_content = create_offline_feed(url)
   end
