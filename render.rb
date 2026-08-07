@@ -68,9 +68,11 @@ PLACEHOLDER_SUMMARIES = [
 # hosted model.
 SUMMARY_PROMPT_GUARDRAILS = <<~PROMPT.strip.freeze
   Use only facts stated in the supplied items. Do not invent, infer, or connect separate items.
+  Each bracketed ITEM is independent unless its own text explicitly says otherwise.
   Preserve names, places, dates, numbers, and operational status verbs exactly as written.
   Treat jokes, asides, rhetorical questions, and parenthetical comments as non-factual and omit them.
   Do not add severity, importance, or promotional adjectives unless they appear in the supplied item.
+  Do not describe what residents know, feel, expect, or face unless an item states it.
   Do not mention the feed, source, article, supplied text, or that you are summarizing.
   Never begin with "The text", "This article", "These stories", "The following", or "In summary".
   Do not end with a general sentence about what the stories reflect, highlight, or demonstrate.
@@ -98,7 +100,8 @@ PROMPT
 BREAKING_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
   Write a breaking-news update of at most 70 words.
   The first sentence must summarize the item labeled LATEST UPDATE.
-  Do not describe an earlier incident as active when a newer item says crews are mopping up, canceling units, or releasing resources.
+  Use only the LATEST UPDATE; the update list below the summary covers earlier events.
+  Prefer its original nouns and verbs over paraphrasing.
   Do not add severity words such as "major" unless the latest item uses them.
   Keep status verbs exactly as written; for example, never change "releasing" to "deploying".
   Include a time only when it appears in the supplied item. Use terse, direct declarative sentences.
@@ -117,7 +120,7 @@ FEED_NAME_MAX = 40
 ITEM_DESC_MAX = 240
 SUMMARY_ITEMS_PER_FEED = 10
 OVERALL_ITEMS_PER_FEED = 5
-BREAKING_SUMMARY_ITEMS = 5
+BREAKING_SUMMARY_ITEMS = 1
 
 # National Weather Service active-alerts API + the zone to watch. CAC057 is
 # Nevada County, CA (covers Nevada City, Grass Valley and Truckee); override
@@ -611,7 +614,7 @@ def summarize_news(feed)
           else
             extract_feed_content(feed)
           end
-  news_content = bounded_summary_content(deduplicate_summary_lines(lines), 4096)
+  news_content = labeled_summary_content(deduplicate_summary_lines(lines), 4096)
   return "No articles available for summarization." if news_content.empty?
 
   generate_ai_summary(
@@ -631,7 +634,7 @@ def summarize_overall_news(feeds)
   # front-page summary (or makes the model refuse to summarize it).
   live_feeds = feeds.reject { |feed| feed_offline?(feed) }
   all_lines = live_feeds.flat_map { |feed| extract_feed_content(feed, limit: OVERALL_ITEMS_PER_FEED) }
-  all_content = bounded_summary_content(deduplicate_summary_lines(all_lines), 6144)
+  all_content = labeled_summary_content(deduplicate_summary_lines(all_lines), 6144)
   return "No articles available for summarization." if all_content.empty?
 
   generate_ai_summary(
@@ -697,6 +700,11 @@ def bounded_summary_content(lines, max_chars)
   selected.join('. ')
 end
 
+def labeled_summary_content(lines, max_chars)
+  labeled_lines = lines.each_with_index.map { |line, index| "[ITEM #{index + 1}] #{line}" }
+  bounded_summary_content(labeled_lines, max_chars)
+end
+
 def deduplicate_summary_lines(lines)
   seen = {}
   lines.each_with_object([]) do |line, unique|
@@ -710,9 +718,8 @@ end
 
 def breaking_summary_content(breaking_news)
   entries = breaking_news.first(BREAKING_SUMMARY_ITEMS)
-  lines = entries.each_with_index.map do |entry, index|
-    label = index.zero? ? 'LATEST UPDATE' : 'EARLIER UPDATE'
-    "#{label} — #{entry[:timestamp]}: #{entry[:content]}"
+  lines = entries.map do |entry|
+    "LATEST UPDATE — #{entry[:timestamp]}: #{entry[:content]}"
   end
   bounded_summary_content(lines, 3072)
 end

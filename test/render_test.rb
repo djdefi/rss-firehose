@@ -369,6 +369,10 @@ class RenderTest < Minitest::Test
     assert_equal 'First item', bounded_summary_content(['First item', 'Second item'], 15)
   end
 
+  def test_labeled_summary_content_marks_items_as_independent
+    assert_equal '[ITEM 1] First. [ITEM 2] Second', labeled_summary_content(%w[First Second], 100)
+  end
+
   def test_deduplicate_summary_lines_uses_normalized_title
     lines = ['Council Update - First version', ' council   update - Duplicate', 'Fire Update - Current']
     assert_equal ['Council Update - First version', 'Fire Update - Current'], deduplicate_summary_lines(lines)
@@ -381,7 +385,7 @@ class RenderTest < Minitest::Test
 
     content = breaking_summary_content(entries)
     assert_match(/\ALATEST UPDATE — time 0: update 0/, content)
-    assert_includes content, 'EARLIER UPDATE — time 4: update 4'
+    refute_includes content, 'update 1'
     refute_includes content, 'update 5'
   end
 
