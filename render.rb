@@ -70,14 +70,17 @@ SUMMARY_PROMPT_GUARDRAILS = <<~PROMPT.strip.freeze
   Use only facts stated in the supplied items. Do not invent, infer, or connect separate items.
   Preserve names, places, dates, numbers, and operational status verbs exactly as written.
   Treat jokes, asides, rhetorical questions, and parenthetical comments as non-factual and omit them.
+  Do not add severity, importance, or promotional adjectives unless they appear in the supplied item.
   Do not mention the feed, source, article, supplied text, or that you are summarizing.
   Never begin with "The text", "This article", "These stories", "The following", or "In summary".
   Do not end with a general sentence about what the stories reflect, highlight, or demonstrate.
+  Avoid filler such as "recent updates", "meanwhile", "additionally", "highlights", "showcases", "shines", or "makes headlines".
   Return exactly one plain-text paragraph with no label, markdown, HTML, headings, bullets, links, or line breaks.
 PROMPT
 
 NEWS_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
   Write a local-news digest of at most 120 words.
+  The first sentence must report a specific event with a named subject and action, not announce that updates or stories exist.
   Open with the most recent or consequential development, then briefly include only closely related or important items.
   Use direct declarative sentences and active voice. If the items are thin or repetitive, write less rather than padding.
   #{SUMMARY_PROMPT_GUARDRAILS}
@@ -85,6 +88,7 @@ PROMPT
 
 OVERALL_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
   Write a front-page local-news digest of at most 150 words.
+  The first sentence must report a specific event with a named subject and action, not announce a digest or list of updates.
   Lead with the most consequential development, then summarize other important developments in descending importance.
   State concrete facts and clearly stated local impacts. Do not merge unrelated items into a single claim or invent a theme.
   Use direct declarative sentences and active voice. If coverage is sparse, write less rather than padding.
@@ -93,7 +97,9 @@ PROMPT
 
 BREAKING_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
   Write a breaking-news update of at most 70 words.
-  Lead with the newest or most urgent event and its current status.
+  The first sentence must summarize the item labeled LATEST UPDATE.
+  Do not describe an earlier incident as active when a newer item says crews are mopping up, canceling units, or releasing resources.
+  Do not add severity words such as "major" unless the latest item uses them.
   Keep status verbs exactly as written; for example, never change "releasing" to "deploying".
   Include a time only when it appears in the supplied item. Use terse, direct declarative sentences.
   #{SUMMARY_PROMPT_GUARDRAILS}
@@ -111,7 +117,7 @@ FEED_NAME_MAX = 40
 ITEM_DESC_MAX = 240
 SUMMARY_ITEMS_PER_FEED = 10
 OVERALL_ITEMS_PER_FEED = 5
-BREAKING_SUMMARY_ITEMS = 10
+BREAKING_SUMMARY_ITEMS = 5
 
 # National Weather Service active-alerts API + the zone to watch. CAC057 is
 # Nevada County, CA (covers Nevada City, Grass Valley and Truckee); override
@@ -539,6 +545,8 @@ def format_summary(text)
   summary = text.to_s.gsub(/\s+/, ' ').strip
   summary = summary.sub(/\A(?:summary:\s*)/i, '')
   summary = summary.sub(/\Athe (?:supplied )?text (?:highlights|describes|reports|covers|notes|discusses)\s+/i, '')
+  summary = summary.sub(/\Arecent updates (?:highlight|include)\s+/i, '')
+  summary = summary.sub(/\A[^.:]{1,80}\bis seeing several key updates:\s*/i, '')
   summary = summary.gsub(/\[([^\]]{1,100})\]\([^)[:space:]]{1,200}\)/, '\1')
   summary = summary.gsub(/\*\*([^*]{1,200})\*\*/, '\1')
   summary = summary.sub(/\A\#{1,6}\s*/, '')
@@ -700,6 +708,15 @@ def deduplicate_summary_lines(lines)
   end
 end
 
+def breaking_summary_content(breaking_news)
+  entries = breaking_news.first(BREAKING_SUMMARY_ITEMS)
+  lines = entries.each_with_index.map do |entry, index|
+    label = index.zero? ? 'LATEST UPDATE' : 'EARLIER UPDATE'
+    "#{label} — #{entry[:timestamp]}: #{entry[:content]}"
+  end
+  bounded_summary_content(lines, 3072)
+end
+
 # Parse YubaNet "Happening Now" HTML into breaking-news entries. Pure (no I/O)
 # so it can be unit-tested against fixture HTML without hitting the network.
 #
@@ -755,9 +772,7 @@ end
 def summarize_breaking_news(breaking_news)
   return "No breaking news available for summarization." if breaking_news.nil? || breaking_news.empty?
 
-  latest_entries = breaking_news.first(BREAKING_SUMMARY_ITEMS)
-  lines = latest_entries.map { |entry| "#{entry[:timestamp]}: #{entry[:content]}" }
-  content_text = bounded_summary_content(lines, 3072)
+  content_text = breaking_summary_content(breaking_news)
   return "No breaking news content available for summarization." if content_text.empty?
 
   generate_ai_summary(

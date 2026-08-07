@@ -110,6 +110,7 @@ class RenderTest < Minitest::Test
     assert_includes NEWS_SUMMARY_PROMPT, 'Use only facts stated in the supplied items.', 'feed summary prompt must stay grounded'
     assert_includes OVERALL_SUMMARY_PROMPT, 'Do not merge unrelated items', 'overall prompt must not invent themes'
     assert_includes BREAKING_SUMMARY_PROMPT, 'never change "releasing" to "deploying"', 'breaking prompt must preserve status'
+    assert_includes BREAKING_SUMMARY_PROMPT, 'LATEST UPDATE', 'breaking prompt must enforce chronological priority'
     assert_includes SUMMARY_PROMPT_GUARDRAILS, 'Treat jokes, asides', 'shared rules must reject non-factual asides'
     refute_equal NEWS_SUMMARY_PROMPT, OVERALL_SUMMARY_PROMPT, 'feed and overall prompts should not collapse into one generic prompt'
     refute_equal NEWS_SUMMARY_PROMPT, BREAKING_SUMMARY_PROMPT, 'feed and breaking prompts should stay distinct'
@@ -371,6 +372,17 @@ class RenderTest < Minitest::Test
   def test_deduplicate_summary_lines_uses_normalized_title
     lines = ['Council Update - First version', ' council   update - Duplicate', 'Fire Update - Current']
     assert_equal ['Council Update - First version', 'Fire Update - Current'], deduplicate_summary_lines(lines)
+  end
+
+  def test_breaking_summary_content_labels_latest_and_excludes_older_noise
+    entries = 6.times.map do |index|
+      { timestamp: "time #{index}", content: "update #{index}" }
+    end
+
+    content = breaking_summary_content(entries)
+    assert_match(/\ALATEST UPDATE — time 0: update 0/, content)
+    assert_includes content, 'EARLIER UPDATE — time 4: update 4'
+    refute_includes content, 'update 5'
   end
 
   # --- NWS critical weather-alert band -------------------------------------
