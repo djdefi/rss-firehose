@@ -125,6 +125,8 @@ class RenderTest < Minitest::Test
     assert_includes formatted, 'bold link', 'markdown should collapse to plain text'
     refute_includes formatted, 'The text highlights', 'forbidden model preambles should be removed'
     refute_match(/<br|<b>|<a /, formatted, 'summary output must remain one plain paragraph')
+    assert_equal 'A specific update.', format_summary('a specific update. These developments reflect progress.'),
+                 'generic closing language should not survive output cleanup'
   end
 
   def test_summarize_news_skips_ai_without_local_endpoint
@@ -387,6 +389,11 @@ class RenderTest < Minitest::Test
     assert_match(/\ALATEST UPDATE — time 0: update 0/, content)
     refute_includes content, 'update 1'
     refute_includes content, 'update 5'
+  end
+
+  def test_breaking_news_uses_verbatim_list_instead_of_ai_summary
+    entries = [{ timestamp: '5:22 PM', content: 'Air Attack 17 and tankers are launching.' }]
+    assert_nil summarize_breaking_news(entries)
   end
 
   # --- NWS critical weather-alert band -------------------------------------

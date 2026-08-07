@@ -550,9 +550,11 @@ def format_summary(text)
   summary = summary.sub(/\Athe (?:supplied )?text (?:highlights|describes|reports|covers|notes|discusses)\s+/i, '')
   summary = summary.sub(/\Arecent updates (?:highlight|include)\s+/i, '')
   summary = summary.sub(/\A[^.:]{1,80}\bis seeing several key updates:\s*/i, '')
+  summary = summary.sub(/\s+(?:These|Those) (?:developments|stories|updates) (?:reflect|highlight|show|demonstrate)[^.]*\.\z/i, '')
   summary = summary.gsub(/\[([^\]]{1,100})\]\([^)[:space:]]{1,200}\)/, '\1')
   summary = summary.gsub(/\*\*([^*]{1,200})\*\*/, '\1')
   summary = summary.sub(/\A\#{1,6}\s*/, '')
+  summary = summary.sub(/\A([a-z])/) { Regexp.last_match(1).upcase }
   html_escape(summary.strip)
 end
 
@@ -775,21 +777,12 @@ rescue => e
   []
 end
 
-# Summarize breaking news content using AI
+# Breaking updates remain verbatim. The local 1.2B model repeatedly changed
+# operational status and merged unrelated incidents, which is unacceptable on
+# the site's most time-sensitive surface.
 def summarize_breaking_news(breaking_news)
   return "No breaking news available for summarization." if breaking_news.nil? || breaking_news.empty?
-
-  content_text = breaking_summary_content(breaking_news)
-  return "No breaking news content available for summarization." if content_text.empty?
-
-  generate_ai_summary(
-    BREAKING_SUMMARY_PROMPT,
-    content_text,
-    context: "breaking news",
-    temperature: 0.1,
-    max_tokens: 110,
-    top_p: 0.9
-  )
+  nil
 end
 
 # Turn an NWS active-alerts API JSON body into a compact, escaped-later list of
