@@ -168,6 +168,7 @@ class RenderTest < Minitest::Test
 
     assert_equal 'http://127.0.0.1:8080/v1/chat/completions', request[0]
     refute_includes request[1][:headers], 'Authorization'
+    assert_equal 180, request[1][:timeout]
     body = JSON.parse(request[1][:body])
     assert_equal AI_SUMMARY_MODEL, body['model']
     assert_equal 'Content', body.dig('messages', 1, 'content')

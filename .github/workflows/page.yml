@@ -157,6 +157,7 @@ jobs:
         AI_API_ENDPOINT: http://127.0.0.1:8080/v1/chat/completions
         AI_MODEL: ${{ github.event.inputs.ai_model || 'lfm2.5-1.2b' }}
         AI_MODEL_VARIANT: ${{ github.event.inputs.ai_model || 'lfm2.5-1.2b' }}
+        AI_REQUEST_TIMEOUT: '240'
         FEED_CONCURRENCY: '2'
         FORCE_REGENERATE: ${{ github.event.inputs.force_regenerate || 'false' }}
         RENDER_REGIONAL: '1' # Also build public/regional.html from urls-regional.txt

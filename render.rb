@@ -572,6 +572,7 @@ def generate_ai_summary(system_prompt, user_content, context:, temperature:, max
   response = HTTParty.post(
     endpoint,
     headers: headers,
+    timeout: (ENV['AI_REQUEST_TIMEOUT'] || '180').to_i,
     body: {
       "messages": [
         { "role": "system", "content": system_prompt },
