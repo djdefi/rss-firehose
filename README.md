@@ -64,17 +64,20 @@ Available environment variable options:
 "RSS_BACKUP_URLS=https://backup1/feed,http://backup2/rss"
 "RSS_TITLE=My News"
 "RSS_DESCRIPTION=My really awesome news aggregation page"
-"GITHUB_TOKEN=your_github_token_for_ai_summaries"
+"AI_API_ENDPOINT=http://127.0.0.1:8080/v1/chat/completions" # Local llama.cpp server
+"AI_MODEL=lfm2.5-1.2b-instruct"
 "FORCE_REGENERATE=true" # Skip cache and force full regeneration
 ```
 
 ### AI-Powered Summaries
 
-RSS Firehose can generate AI-powered summaries of your news feeds using GitHub's Models service. To enable this feature:
+RSS Firehose generates AI summaries locally with Liquid AI's LFM2.5-1.2B-Instruct model and llama.cpp. The GitHub Pages workflow downloads pinned, checksum-verified builds of both, caches them, and performs inference on the GitHub Actions runner.
 
-1. Set the `GITHUB_TOKEN` environment variable with your GitHub personal access token
-2. Summaries are cached for 6 hours to minimize API usage
-3. If no token is provided, the app gracefully falls back to displaying feeds without summaries
+No API key, hosted inference account, or per-request fee is required. The quantized model is approximately 731 MB and is cached between workflow runs. Generated summaries remain cached for 6 hours.
+
+For local development, start a llama.cpp server with the model alias `lfm2.5-1.2b-instruct`, then set `AI_API_ENDPOINT` as shown above. Without a local endpoint, rendering continues normally with summaries disabled.
+
+LFM2.5 is distributed under the [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/blob/main/LICENSE).
 
 #### Forcing Full Regeneration
 
@@ -116,7 +119,7 @@ This dual approach ensures varied and interesting content rather than repetitive
 
 - **Robust Error Handling**: Feeds that are offline or unreachable are gracefully handled with placeholder content
 - **Smart Backup Feeds**: Configure backup RSS feeds that are used when primary feeds are empty
-- **AI Summarization**: Optional AI-powered news summaries using GitHub Models
+- **AI Summarization**: Optional AI-powered news summaries using an OpenAI-compatible API
 - **Caching**: Intelligent caching of AI summaries to reduce API usage
 - **Input Validation**: Automatic validation of RSS URLs and configuration
 - **Responsive Design**: Mobile-friendly HTML output with accessibility features

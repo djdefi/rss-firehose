@@ -101,7 +101,74 @@ class RenderTest < Minitest::Test
     assert_includes Object.private_instance_methods, :summarize_overall_news, "summarize_overall_news function should exist"
     
     puts "✓ Both summarize_news and summarize_overall_news functions are available"
-    puts "Note: Full summary variation testing requires GITHUB_TOKEN for integration validation"
+    puts "Note: Full summary variation testing requires a running local llama.cpp server"
+  end
+
+  def test_summary_prompts_include_shared_guardrails_and_distinct_modes
+    load File.expand_path('../render.rb', __dir__)
+
+    assert_includes NEWS_SUMMARY_PROMPT, 'Use only the supplied text.', 'feed summary prompt must stay grounded'
+    assert_includes OVERALL_SUMMARY_PROMPT, 'multiple local sources', 'overall prompt must synthesize across feeds'
+    assert_includes BREAKING_SUMMARY_PROMPT, 'newest or most urgent development', 'breaking prompt must prioritize freshness'
+    refute_equal NEWS_SUMMARY_PROMPT, OVERALL_SUMMARY_PROMPT, 'feed and overall prompts should not collapse into one generic prompt'
+    refute_equal NEWS_SUMMARY_PROMPT, BREAKING_SUMMARY_PROMPT, 'feed and breaking prompts should stay distinct'
+  end
+
+  def test_format_summary_escapes_html_and_keeps_safe_markup
+    load File.expand_path('../render.rb', __dir__)
+
+    formatted = format_summary("<script>alert(1)</script>\n**bold** [link](https://example.com)")
+    refute_includes formatted, '<script>', 'raw HTML must never pass through summary rendering'
+    assert_includes formatted, '&lt;script&gt;alert(1)&lt;/script&gt;', 'raw HTML should be escaped visibly'
+    assert_includes formatted, '<b>bold</b>', 'safe bold markdown should still render'
+    assert_includes formatted, '<a href="https://example.com">link</a>', 'safe markdown links should still render'
+  end
+
+  def test_summarize_news_skips_ai_without_local_endpoint
+    load File.expand_path('../render.rb', __dir__)
+    saved = ENV['AI_API_ENDPOINT']
+    ENV['AI_API_ENDPOINT'] = '   '
+    feed = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>c</title><link>http://x</link>
+      <description>d</description>
+      <item><title>Headline</title><link>http://x/1</link><description>Body.</description></item>
+      </channel></rss>
+    XML
+
+    assert_equal 'AI summarization unavailable - local model not configured.', summarize_news(feed)
+  ensure
+    saved ? ENV['AI_API_ENDPOINT'] = saved : ENV.delete('AI_API_ENDPOINT')
+  end
+
+  def test_generate_ai_summary_uses_local_llama_server_without_auth
+    load File.expand_path('../render.rb', __dir__)
+    saved_endpoint = ENV['AI_API_ENDPOINT']
+    ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'
+    request = nil
+    original_post = HTTParty.method(:post)
+    response = Struct.new(:body, :code) do
+      def success?
+        true
+      end
+    end.new({ choices: [{ message: { content: 'Generated summary.' } }] }.to_json, 200)
+
+    HTTParty.define_singleton_method(:post) do |url, options|
+      request = [url, options]
+      response
+    end
+    assert_equal 'Generated summary.',
+                 generate_ai_summary('System', 'Content', context: 'test', temperature: 0.2,
+                                     max_tokens: 50, top_p: 0.9)
+
+    assert_equal 'http://127.0.0.1:8080/v1/chat/completions', request[0]
+    refute_includes request[1][:headers], 'Authorization'
+    body = JSON.parse(request[1][:body])
+    assert_equal AI_SUMMARY_MODEL, body['model']
+    assert_equal 'Content', body.dig('messages', 1, 'content')
+  ensure
+    HTTParty.singleton_class.send(:define_method, :post, original_post) if original_post
+    saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
   end
 
   def test_force_regenerate_skips_cache

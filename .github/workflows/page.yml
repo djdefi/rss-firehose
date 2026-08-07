@@ -49,6 +49,40 @@ jobs:
         restore-keys: |
           ai-summary-
 
+    - name: Restore local AI runtime
+      id: cache-local-ai
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .local-ai
+        key: local-ai-llama-b10298-lfm2.5-1.2b-q4km-76022b8
+
+    - name: Install local AI runtime
+      if: steps.cache-local-ai.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p .local-ai/llama .local-ai/models
+
+        curl -fsSL \
+          https://github.com/ggml-org/llama.cpp/releases/download/b10298/llama-b10298-bin-ubuntu-x64.tar.gz \
+          -o "$RUNNER_TEMP/llama.tar.gz"
+        echo "c8c7a1e7ff36c92eac16440e224b82afbee9caef843a9aa84ba1e5a9f0329af4  $RUNNER_TEMP/llama.tar.gz" |
+          sha256sum --check
+        tar -xzf "$RUNNER_TEMP/llama.tar.gz" -C .local-ai/llama --strip-components=1
+
+        curl -fsSL \
+          https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/resolve/76022b8bfa64af5862d6bce90a676c3cc9b17b52/LFM2.5-1.2B-Instruct-Q4_K_M.gguf \
+          -o .local-ai/models/LFM2.5-1.2B-Instruct-Q4_K_M.gguf
+        echo "b1b3de114215d9507409a662a501a631095a479a419584e8a2ded6304b19b4f5  .local-ai/models/LFM2.5-1.2B-Instruct-Q4_K_M.gguf" |
+          sha256sum --check
+
+    - name: Save local AI runtime
+      if: steps.cache-local-ai.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .local-ai
+        key: local-ai-llama-b10298-lfm2.5-1.2b-q4km-76022b8
+
     # Sets up Ruby environment
     - name: Setup Ruby
       uses: ruby/setup-ruby@8e41b362d2589a22a44c1cfa214b3c83052c195b # v1.318.0
@@ -57,9 +91,37 @@ jobs:
         bundler-cache: true
         
     # Runs the Ruby script to render the page
-    - run: bundle exec ruby render.rb
+    - name: Render with local LFM2.5 summaries
+      shell: bash
+      run: |
+        set -euo pipefail
+        .local-ai/llama/llama-server \
+          --model .local-ai/models/LFM2.5-1.2B-Instruct-Q4_K_M.gguf \
+          --alias lfm2.5-1.2b-instruct \
+          --host 127.0.0.1 \
+          --port 8080 \
+          --ctx-size 4096 \
+          --parallel 2 \
+          --threads 4 \
+          --no-webui \
+          > "$RUNNER_TEMP/llama-server.log" 2>&1 &
+        server_pid=$!
+        trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+
+        for _ in {1..60}; do
+          curl -fsS http://127.0.0.1:8080/health >/dev/null && break
+          sleep 2
+        done
+        if ! curl -fsS http://127.0.0.1:8080/health >/dev/null; then
+          cat "$RUNNER_TEMP/llama-server.log"
+          exit 1
+        fi
+
+        bundle exec ruby render.rb
       env:
-        GITHUB_TOKEN: ${{ secrets.API_TOKEN }}
+        AI_API_ENDPOINT: http://127.0.0.1:8080/v1/chat/completions
+        AI_MODEL: lfm2.5-1.2b-instruct
+        FEED_CONCURRENCY: '2'
         FORCE_REGENERATE: ${{ github.event.inputs.force_regenerate || 'false' }}
         RENDER_REGIONAL: '1' # Also build public/regional.html from urls-regional.txt
 

@@ -63,6 +63,34 @@ PLACEHOLDER_SUMMARIES = [
   'No articles available for summarization.'
 ].freeze
 
+# Shared guardrails for all summaries. Keep them terse and explicit so the
+# model stays grounded in the supplied feed text and returns plain prose only.
+SUMMARY_PROMPT_GUARDRAILS = 'Use only the supplied text. Do not invent details, mention the feed/source, or add bullets, headings, HTML, markdown, or preamble. Return one plain paragraph.'.freeze
+
+NEWS_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
+  You are writing a concise local-news digest for a homepage.
+  Summarize the most newsworthy items in under 120 words.
+  Lead with the most important item, then merge related developments.
+  Keep names, places, dates, and numbers only when they are present in the source text.
+  If the material is thin or repetitive, stay conservative rather than speculating.
+  #{SUMMARY_PROMPT_GUARDRAILS}
+PROMPT
+
+OVERALL_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
+  You are editing the site's overall front-page digest across multiple local sources.
+  In under 160 words, synthesize the most important stories and themes across the provided text.
+  Prefer concrete facts, impacts, and comparisons.
+  If the sources are sparse, say only what they clearly support.
+  #{SUMMARY_PROMPT_GUARDRAILS}
+PROMPT
+
+BREAKING_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
+  You are editing a breaking-news strip for a homepage.
+  In under 80 words, lead with the newest or most urgent development.
+  State the immediate impact or current status when present, and keep the wording terse and factual.
+  #{SUMMARY_PROMPT_GUARDRAILS}
+PROMPT
+
 # Maximum length of a friendly feed name before it is truncated with an
 # ellipsis (see feed_display_name), so a long channel title can't dominate the
 # layout or reintroduce horizontal overflow on narrow screens.
@@ -491,51 +519,55 @@ def convert_markdown_links_to_html(text)
   end
 end
 
-# Shared GitHub Models endpoint/model used for all AI summaries.
-AI_SUMMARY_ENDPOINT = "https://models.inference.ai.azure.com/chat/completions"
-AI_SUMMARY_MODEL = "gpt-4o-mini"
+AI_SUMMARY_MODEL = 'lfm2.5-1.2b-instruct'
 
 # Apply the shared markdown-ish -> HTML formatting used by every summary:
-# newlines to <br/>, "## x" to escaped <h2>, markdown links, and **bold**.
+# escape raw HTML first, then allow a tiny safe subset: newlines, "## x",
+# markdown links, and **bold**.
 def format_summary(text)
-  summary = text.gsub("\n", "<br/>")
+  summary = html_escape(text.to_s).gsub("\n", "<br/>")
   summary = summary.gsub(/(##\s*)(.*)/) { "<h2>#{html_escape($2)}</h2>" }
   summary = convert_markdown_links_to_html(summary)
   summary.gsub(/\*\*(.*?)\*\*/) { "<b>#{html_escape($1)}</b>" }
 end
 
-# Request a GitHub Models chat completion for a summary. Centralizes the token
-# guard, HTTP call, response parsing/formatting and error handling shared by
-# every summarize_* method. `context` only affects log wording.
+# Request a chat completion from the local llama.cpp server started by the
+# Pages workflow. No API key or hosted inference service is required.
 def generate_ai_summary(system_prompt, user_content, context:, temperature:, max_tokens:, top_p:)
-  unless ENV['GITHUB_TOKEN']
-    puts "No GITHUB_TOKEN provided, skipping AI summarization"
-    return "AI summarization unavailable - no API token configured."
+  endpoint = ENV['AI_API_ENDPOINT'].to_s.strip
+  if endpoint.empty?
+    puts "No local AI endpoint configured, skipping AI summarization"
+    return "AI summarization unavailable - local model not configured."
   end
 
+  headers = { "Content-Type" => "application/json" }
+
   response = HTTParty.post(
-    AI_SUMMARY_ENDPOINT,
-    headers: {
-      "Content-Type" => "application/json",
-      "Authorization" => "Bearer #{ENV['GITHUB_TOKEN']}"
-    },
+    endpoint,
+    headers: headers,
     body: {
       "messages": [
         { "role": "system", "content": system_prompt },
         { "role": "user", "content": user_content }
       ],
-      "model": AI_SUMMARY_MODEL,
+      "model": ENV.fetch('AI_MODEL', AI_SUMMARY_MODEL),
       "temperature": temperature,
       "max_tokens": max_tokens,
       "top_p": top_p
     }.to_json
   )
+  unless response.success?
+    puts "AI service returned HTTP #{response.code} while summarizing #{context}"
+    return "Summary generation failed - AI service returned HTTP #{response.code}."
+  end
+
   parsed_response = sanitize_response(response.body)
 
-  if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
-    format_summary(parsed_response["choices"].first["message"]["content"])
-  else
+  content = parsed_response&.dig("choices", 0, "message", "content")
+  if content.to_s.strip.empty?
     "Summary generation failed - no valid response from AI service."
+  else
+    format_summary(content)
   end
 rescue HTTParty::Error => e
   puts "HTTP error summarizing #{context}: #{e.message}"
@@ -560,7 +592,7 @@ def summarize_news(feed)
   return "No articles available for summarization." if news_content.empty?
 
   generate_ai_summary(
-    "You are a news editor writing a front-page digest. Summarize the key stories below in under 150 words of clear, factual journalistic prose. Lead with the most important developments and include specific names, places, dates, and figures when present. Do not mention the feed or that you are summarizing. Output only the summary text: no headings, labels, lists, or preamble.",
+    NEWS_SUMMARY_PROMPT,
     news_content[0..4096],
     context: "news",
     temperature: 0.5,
@@ -579,7 +611,7 @@ def summarize_overall_news(feeds)
   return "No articles available for summarization." if all_content.empty?
 
   generate_ai_summary(
-    "You are the editor of a major newspaper writing the front-page summary across all of today's sources. In under 200 words, synthesize the most important stories, common themes, and significant trends. Explain what happened, who is affected, and why it matters, emphasizing facts and implications over a list of events. Do not mention the feeds or sources themselves. Output only the summary text: no headings, labels, or preamble.",
+    OVERALL_SUMMARY_PROMPT,
     all_content[0..6144],
     context: "overall news",
     temperature: 0.4,
@@ -665,7 +697,7 @@ def summarize_breaking_news(breaking_news)
   return "No breaking news content available for summarization." if content_text.empty?
 
   generate_ai_summary(
-    "You are a breaking-news editor. In under 100 words, summarize the most critical, time-sensitive developments below. Highlight what readers need to know right now, including immediate impacts and any emerging pattern. Use urgent but clear language. Output only the summary text: no headings, labels, or preamble.",
+    BREAKING_SUMMARY_PROMPT,
     content_text[0..3072],
     context: "breaking news",
     temperature: 0.3,
@@ -818,7 +850,7 @@ puts "Title: #{title}"
 puts "Description: #{description}"
 puts "RSS URLs: #{rss_urls.join(', ')}" if rss_urls.any?
 puts "Backup URLs: #{rss_backup_urls.join(', ')}" if rss_backup_urls.any?
-puts "GitHub Token: #{ENV['GITHUB_TOKEN'] ? 'configured' : 'not configured (AI summaries disabled)'}"
+puts "Local AI: #{ENV['AI_API_ENDPOINT'].to_s.strip.empty? ? 'not configured (summaries disabled)' : AI_SUMMARY_MODEL}"
 puts "Analytics UA: #{ENV['ANALYTICS_UA'] ? 'configured' : 'not configured'}"
 puts ""
 
@@ -841,7 +873,7 @@ if cached
 else
   puts "Generating summaries for #{feeds.size} feeds..."
 
-  # Every summary is an independent GitHub Models request, so pipeline them all
+  # Every summary is an independent local inference request, so pipeline them
   # (per-feed + overall + breaking + regional overview) across the bounded pool
   # instead of making N+ serial calls. On a 3-feed run this collapses several
   # HTTP round-trips from sequential to roughly one call's wall-clock.
