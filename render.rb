@@ -929,7 +929,8 @@ puts "Title: #{title}"
 puts "Description: #{description}"
 puts "RSS URLs: #{rss_urls.join(', ')}" if rss_urls.any?
 puts "Backup URLs: #{rss_backup_urls.join(', ')}" if rss_backup_urls.any?
-puts "Local AI: #{ENV['AI_API_ENDPOINT'].to_s.strip.empty? ? 'not configured (summaries disabled)' : AI_SUMMARY_MODEL}"
+configured_model = ENV.fetch('AI_MODEL', AI_SUMMARY_MODEL)
+puts "Local AI: #{ENV['AI_API_ENDPOINT'].to_s.strip.empty? ? 'not configured (summaries disabled)' : configured_model}"
 puts "Analytics UA: #{ENV['ANALYTICS_UA'] ? 'configured' : 'not configured'}"
 puts ""
 

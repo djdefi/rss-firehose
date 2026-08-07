@@ -75,6 +75,8 @@ RSS Firehose generates AI summaries locally with Liquid AI's LFM2.5-1.2B-Instruc
 
 No API key, hosted inference account, or per-request fee is required. The quantized model is approximately 731 MB and is cached between workflow runs. Generated summaries remain cached for 6 hours.
 
+Manual workflow dispatches can select `lfm2.5-2.6b` for quality comparisons. Its Q4_K_M model is approximately 1.67 GB; scheduled runs continue using the smaller 1.2B model unless the workflow default is changed.
+
 For local development, start a llama.cpp server with the model alias `lfm2.5-1.2b-instruct`, then set `AI_API_ENDPOINT` as shown above. Without a local endpoint, rendering continues normally with summaries disabled.
 
 LFM2.5 is distributed under the [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/blob/main/LICENSE).
