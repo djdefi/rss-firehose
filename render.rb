@@ -544,7 +544,25 @@ AI_SUMMARY_MODEL = 'lfm2.5-1.2b-instruct'
 # Enforce the one-paragraph plain-text output contract before HTML rendering.
 # The prefix cleanup is a deterministic backstop for common small-model
 # preambles that the prompt explicitly forbids.
-def format_summary(text)
+def truncate_summary_sentences(text, max_words)
+  return text if max_words.nil? || text.split.size <= max_words
+
+  sentences = text.scan(/.*?(?:[.!?](?=\s|\z)|\z)/).map(&:strip).reject(&:empty?)
+  selected = []
+  word_count = 0
+  sentences.each do |sentence|
+    sentence_words = sentence.split.size
+    break if word_count + sentence_words > max_words
+
+    selected << sentence
+    word_count += sentence_words
+  end
+  return selected.join(' ') unless selected.empty?
+
+  "#{text.split.first(max_words).join(' ').sub(/[,:;]\z/, '')}."
+end
+
+def format_summary(text, max_words: nil)
   summary = text.to_s.gsub(/\s+/, ' ').strip
   summary = summary.sub(/\A(?:summary:\s*)/i, '')
   summary = summary.sub(/\Athe (?:supplied )?text (?:highlights|describes|reports|covers|notes|discusses)\s+/i, '')
@@ -555,12 +573,13 @@ def format_summary(text)
   summary = summary.gsub(/\*\*([^*]{1,200})\*\*/, '\1')
   summary = summary.sub(/\A\#{1,6}\s*/, '')
   summary = summary.sub(/\A([a-z])/) { Regexp.last_match(1).upcase }
+  summary = truncate_summary_sentences(summary, max_words)
   html_escape(summary.strip)
 end
 
 # Request a chat completion from the local llama.cpp server started by the
 # Pages workflow. No API key or hosted inference service is required.
-def generate_ai_summary(system_prompt, user_content, context:, temperature:, max_tokens:, top_p:)
+def generate_ai_summary(system_prompt, user_content, context:, temperature:, max_tokens:, top_p:, max_words:)
   endpoint = ENV['AI_API_ENDPOINT'].to_s.strip
   if endpoint.empty?
     puts "No local AI endpoint configured, skipping AI summarization"
@@ -595,7 +614,7 @@ def generate_ai_summary(system_prompt, user_content, context:, temperature:, max
   if content.to_s.strip.empty?
     "Summary generation failed - no valid response from AI service."
   else
-    format_summary(content)
+    format_summary(content, max_words: max_words)
   end
 rescue HTTParty::Error => e
   puts "HTTP error summarizing #{context}: #{e.message}"
@@ -625,8 +644,9 @@ def summarize_news(feed)
     news_content,
     context: "news",
     temperature: 0.2,
-    max_tokens: 180,
-    top_p: 0.9
+    max_tokens: 300,
+    top_p: 0.9,
+    max_words: 120
   )
 end
 
@@ -645,8 +665,9 @@ def summarize_overall_news(feeds)
     all_content,
     context: "overall news",
     temperature: 0.2,
-    max_tokens: 220,
-    top_p: 0.9
+    max_tokens: 360,
+    top_p: 0.9,
+    max_words: 150
   )
 end
 

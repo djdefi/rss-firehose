@@ -164,7 +164,7 @@ class RenderTest < Minitest::Test
     end
     assert_equal 'Generated summary.',
                  generate_ai_summary('System', 'Content', context: 'test', temperature: 0.2,
-                                     max_tokens: 50, top_p: 0.9)
+                                     max_tokens: 50, top_p: 0.9, max_words: 20)
 
     assert_equal 'http://127.0.0.1:8080/v1/chat/completions', request[0]
     refute_includes request[1][:headers], 'Authorization'
@@ -370,6 +370,12 @@ class RenderTest < Minitest::Test
 
   def test_bounded_summary_content_never_truncates_an_item
     assert_equal 'First item', bounded_summary_content(['First item', 'Second item'], 15)
+  end
+
+  def test_truncate_summary_sentences_respects_word_limit_without_fragments
+    text = 'First complete sentence has five words. Second sentence also has five words. Third sentence is extra.'
+    assert_equal 'First complete sentence has five words. Second sentence also has five words.',
+                 truncate_summary_sentences(text, 12)
   end
 
   def test_labeled_summary_content_marks_items_as_independent
