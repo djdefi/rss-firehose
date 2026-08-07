@@ -18,11 +18,11 @@ on:
       ai_model:
         description: 'Local model used for summaries'
         required: false
-        default: 'lfm2.5-1.2b'
+        default: 'lfm2.5-2.6b'
         type: choice
         options:
-          - 'lfm2.5-1.2b'
           - 'lfm2.5-2.6b'
+          - 'lfm2.5-1.2b'
   push:  # Triggers the workflow on push events to the main branch
     branches: [ main ]
   schedule:  # Triggers the workflow on a schedule (twice a day)
@@ -62,7 +62,7 @@ jobs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: .local-ai
-        key: local-ai-llama-b10298-${{ github.event.inputs.ai_model || 'lfm2.5-1.2b' }}-v1
+        key: local-ai-llama-b10298-${{ github.event.inputs.ai_model || 'lfm2.5-2.6b' }}-v1
 
     - name: Install local AI runtime
       if: steps.cache-local-ai.outputs.cache-hit != 'true'
@@ -97,14 +97,14 @@ jobs:
         curl -fsSL "$model_url" -o "$model_file"
         echo "$model_sha  $model_file" | sha256sum --check
       env:
-        AI_MODEL_VARIANT: ${{ github.event.inputs.ai_model || 'lfm2.5-1.2b' }}
+        AI_MODEL_VARIANT: ${{ github.event.inputs.ai_model || 'lfm2.5-2.6b' }}
 
     - name: Save local AI runtime
       if: steps.cache-local-ai.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: .local-ai
-        key: local-ai-llama-b10298-${{ github.event.inputs.ai_model || 'lfm2.5-1.2b' }}-v1
+        key: local-ai-llama-b10298-${{ github.event.inputs.ai_model || 'lfm2.5-2.6b' }}-v1
 
     # Sets up Ruby environment
     - name: Setup Ruby
@@ -157,8 +157,8 @@ jobs:
         bundle exec ruby render.rb
       env:
         AI_API_ENDPOINT: http://127.0.0.1:8080/v1/chat/completions
-        AI_MODEL: ${{ github.event.inputs.ai_model || 'lfm2.5-1.2b' }}
-        AI_MODEL_VARIANT: ${{ github.event.inputs.ai_model || 'lfm2.5-1.2b' }}
+        AI_MODEL: ${{ github.event.inputs.ai_model || 'lfm2.5-2.6b' }}
+        AI_MODEL_VARIANT: ${{ github.event.inputs.ai_model || 'lfm2.5-2.6b' }}
         AI_REQUEST_TIMEOUT: '240'
         FEED_CONCURRENCY: '2'
         FORCE_REGENERATE: ${{ github.event.inputs.force_regenerate || 'false' }}

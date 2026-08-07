@@ -808,6 +808,25 @@ class RenderTest < Minitest::Test
     FileUtils.rm_f('cache/ai_summary_cache.json')
   end
 
+  def test_summary_cache_is_invalidated_when_model_changes
+    FileUtils.mkdir_p('cache')
+    File.write(CACHE_FILE, {
+      timestamp: Time.now.utc.iso8601,
+      model: 'lfm2.5-1.2b',
+      summary: 'OLD MODEL SUMMARY'
+    }.to_json)
+    saved_endpoint = ENV['AI_API_ENDPOINT']
+    saved_model = ENV['AI_MODEL']
+    ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'
+    ENV['AI_MODEL'] = 'lfm2.5-2.6b'
+
+    assert_nil load_cached_summaries
+  ensure
+    saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
+    saved_model ? ENV['AI_MODEL'] = saved_model : ENV.delete('AI_MODEL')
+    FileUtils.rm_f(CACHE_FILE)
+  end
+
   def test_summarize_news_skips_offline_feed_returning_nil
     # Must short-circuit before any AI call, so this needs no network/token.
     offline = create_offline_feed('http://example.com/down')

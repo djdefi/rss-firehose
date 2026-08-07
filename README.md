@@ -65,21 +65,21 @@ Available environment variable options:
 "RSS_TITLE=My News"
 "RSS_DESCRIPTION=My really awesome news aggregation page"
 "AI_API_ENDPOINT=http://127.0.0.1:8080/v1/chat/completions" # Local llama.cpp server
-"AI_MODEL=lfm2.5-1.2b-instruct"
+"AI_MODEL=lfm2.5-2.6b"
 "FORCE_REGENERATE=true" # Skip cache and force full regeneration
 ```
 
 ### AI-Powered Summaries
 
-RSS Firehose generates AI summaries locally with Liquid AI's LFM2.5-1.2B-Instruct model and llama.cpp. The GitHub Pages workflow downloads pinned, checksum-verified builds of both, caches them, and performs inference on the GitHub Actions runner.
+RSS Firehose generates AI summaries locally with Liquid AI's LFM2.5-2.6B model and llama.cpp. The GitHub Pages workflow downloads pinned, checksum-verified builds of both, caches them, and performs inference on the GitHub Actions runner.
 
-No API key, hosted inference account, or per-request fee is required. The quantized model is approximately 731 MB and is cached between workflow runs. Generated summaries remain cached for 6 hours.
+No API key, hosted inference account, or per-request fee is required. The default quantized model is approximately 1.67 GB and is cached between workflow runs. Generated summaries remain cached for 6 hours.
 
-Manual workflow dispatches can select `lfm2.5-2.6b` for quality comparisons. Its Q4_K_M model is approximately 1.67 GB; scheduled runs continue using the smaller 1.2B model unless the workflow default is changed.
+Manual workflow dispatches can select `lfm2.5-1.2b` as a faster, lower-quality fallback.
 
-For local development, start a llama.cpp server with the model alias `lfm2.5-1.2b-instruct`, then set `AI_API_ENDPOINT` as shown above. Without a local endpoint, rendering continues normally with summaries disabled.
+For local development, start a llama.cpp server with the model alias `lfm2.5-2.6b`, then set `AI_API_ENDPOINT` as shown above. Without a local endpoint, rendering continues normally with summaries disabled.
 
-LFM2.5 is distributed under the [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/blob/main/LICENSE).
+LFM2.5 is distributed under the [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF/blob/main/LICENSE).
 
 #### Forcing Full Regeneration
 

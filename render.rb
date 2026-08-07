@@ -64,8 +64,8 @@ PLACEHOLDER_SUMMARIES = [
 ].freeze
 
 # Shared newsroom contract for all summaries. These rules are intentionally
-# explicit because the local 1.2B model needs stronger grounding than a large
-# hosted model.
+# explicit because small local models need stronger grounding than large hosted
+# models.
 SUMMARY_PROMPT_GUARDRAILS = <<~PROMPT.strip.freeze
   Use only facts stated in the supplied items. Do not invent, infer, or connect separate items.
   Each bracketed ITEM is independent unless its own text explicitly says otherwise.
@@ -539,7 +539,11 @@ def convert_markdown_links_to_html(text)
   end
 end
 
-AI_SUMMARY_MODEL = 'lfm2.5-1.2b-instruct'
+AI_SUMMARY_MODEL = 'lfm2.5-2.6b'
+
+def configured_ai_model
+  ENV.fetch('AI_MODEL', AI_SUMMARY_MODEL)
+end
 
 # Enforce the one-paragraph plain-text output contract before HTML rendering.
 # The prefix cleanup is a deterministic backstop for common small-model
@@ -597,7 +601,7 @@ def generate_ai_summary(system_prompt, user_content, context:, temperature:, max
         { "role": "system", "content": system_prompt },
         { "role": "user", "content": user_content }
       ],
-      "model": ENV.fetch('AI_MODEL', AI_SUMMARY_MODEL),
+      "model": configured_ai_model,
       "temperature": temperature,
       "max_tokens": max_tokens,
       "top_p": top_p
@@ -881,6 +885,7 @@ def cache_summaries(overall_summary, feed_summaries, breaking_news_summary, regi
     File.open(CACHE_FILE, 'w') do |f|
       f.write({
         timestamp: Time.now.utc.iso8601,
+        model: configured_ai_model,
         summary: overall_summary,
         feed_summaries: feed_summaries || {},
         breaking_news_summary: breaking_news_summary,
@@ -918,6 +923,10 @@ def load_cached_summaries
   begin
     data = JSON.parse(File.read(CACHE_FILE))
     timestamp = Time.parse(data['timestamp'])
+    if !ENV['AI_API_ENDPOINT'].to_s.strip.empty? && data['model'] != configured_ai_model
+      puts "Cached summaries use #{data['model'] || 'an unknown model'}, regenerating with #{configured_ai_model}"
+      return nil
+    end
 
     # Check if cache is still valid (6 hours)
     if Time.now.utc - timestamp < 6 * 60 * 60
@@ -951,8 +960,7 @@ puts "Title: #{title}"
 puts "Description: #{description}"
 puts "RSS URLs: #{rss_urls.join(', ')}" if rss_urls.any?
 puts "Backup URLs: #{rss_backup_urls.join(', ')}" if rss_backup_urls.any?
-configured_model = ENV.fetch('AI_MODEL', AI_SUMMARY_MODEL)
-puts "Local AI: #{ENV['AI_API_ENDPOINT'].to_s.strip.empty? ? 'not configured (summaries disabled)' : configured_model}"
+puts "Local AI: #{ENV['AI_API_ENDPOINT'].to_s.strip.empty? ? 'not configured (summaries disabled)' : configured_ai_model}"
 puts "Analytics UA: #{ENV['ANALYTICS_UA'] ? 'configured' : 'not configured'}"
 puts ""
 

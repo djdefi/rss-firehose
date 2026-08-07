@@ -125,7 +125,7 @@ export ANALYTICS_UA="UA-XXXXX-Y"
 
 # Optional local AI summaries
 export AI_API_ENDPOINT="http://127.0.0.1:8080/v1/chat/completions"
-export AI_MODEL="lfm2.5-1.2b-instruct"
+export AI_MODEL="lfm2.5-2.6b"
 ```
 
 ### CI/CD Pipeline (.github/workflows/)
@@ -175,7 +175,7 @@ export AI_MODEL="lfm2.5-1.2b-instruct"
 - Application gracefully handles network failures with placeholder content
 
 ### AI Summary Limitations
-- Requires a local llama.cpp server loaded with LFM2.5-1.2B-Instruct
+- Requires a local llama.cpp server loaded with LFM2.5-2.6B
 - Falls back to "AI summarization unavailable" without token
 - Summaries cached for 6 hours to minimize API usage
 
