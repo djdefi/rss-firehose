@@ -378,6 +378,11 @@ class RenderTest < Minitest::Test
                  truncate_summary_sentences(text, 12)
   end
 
+  def test_split_summary_sentences_handles_punctuation_and_tail
+    assert_equal ['First sentence.', 'Second!', 'Tail without punctuation'],
+                 split_summary_sentences("First sentence. Second! Tail without punctuation")
+  end
+
   def test_labeled_summary_content_marks_items_as_independent
     assert_equal '[ITEM 1] First. [ITEM 2] Second', labeled_summary_content(%w[First Second], 100)
   end

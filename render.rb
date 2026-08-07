@@ -548,10 +548,29 @@ end
 # Enforce the one-paragraph plain-text output contract before HTML rendering.
 # The prefix cleanup is a deterministic backstop for common small-model
 # preambles that the prompt explicitly forbids.
+def split_summary_sentences(text)
+  chars = text.each_char.to_a
+  sentences = []
+  start_index = 0
+
+  chars.each_index do |index|
+    next unless ['.', '!', '?'].include?(chars[index])
+    next unless index == chars.length - 1 || chars[index + 1].strip.empty?
+
+    sentence = chars[start_index..index].join.strip
+    sentences << sentence unless sentence.empty?
+    start_index = index + 1
+  end
+
+  tail = chars[start_index..]&.join.to_s.strip
+  sentences << tail unless tail.empty?
+  sentences
+end
+
 def truncate_summary_sentences(text, max_words)
   return text if max_words.nil? || text.split.size <= max_words
 
-  sentences = text.scan(/.*?(?:[.!?](?=\s|\z)|\z)/).map(&:strip).reject(&:empty?)
+  sentences = split_summary_sentences(text)
   selected = []
   word_count = 0
   sentences.each do |sentence|
@@ -566,13 +585,40 @@ def truncate_summary_sentences(text, max_words)
   "#{text.split.first(max_words).join(' ').sub(/[,:;]\z/, '')}."
 end
 
+def strip_generic_summary_closer(summary)
+  sentences = split_summary_sentences(summary)
+  return summary if sentences.length < 2
+
+  closer = sentences.last.downcase
+  generic_starts = [
+    'these developments reflect',
+    'these developments highlight',
+    'these developments show',
+    'these developments demonstrate',
+    'these stories reflect',
+    'these stories highlight',
+    'these stories show',
+    'these stories demonstrate',
+    'these updates reflect',
+    'these updates highlight',
+    'these updates show',
+    'these updates demonstrate',
+    'those developments reflect',
+    'those stories reflect',
+    'those updates reflect'
+  ]
+  return summary unless generic_starts.any? { |prefix| closer.start_with?(prefix) }
+
+  sentences[0...-1].join(' ')
+end
+
 def format_summary(text, max_words: nil)
-  summary = text.to_s.gsub(/\s+/, ' ').strip
+  summary = text.to_s.split.join(' ')
   summary = summary.sub(/\A(?:summary:\s*)/i, '')
   summary = summary.sub(/\Athe (?:supplied )?text (?:highlights|describes|reports|covers|notes|discusses)\s+/i, '')
   summary = summary.sub(/\Arecent updates (?:highlight|include)\s+/i, '')
   summary = summary.sub(/\A[^.:]{1,80}\bis seeing several key updates:\s*/i, '')
-  summary = summary.sub(/\s+(?:These|Those) (?:developments|stories|updates) (?:reflect|highlight|show|demonstrate)[^.]*\.\z/i, '')
+  summary = strip_generic_summary_closer(summary)
   summary = summary.gsub(/\[([^\]]{1,100})\]\([^)[:space:]]{1,200}\)/, '\1')
   summary = summary.gsub(/\*\*([^*]{1,200})\*\*/, '\1')
   summary = summary.sub(/\A\#{1,6}\s*/, '')
