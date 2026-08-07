@@ -63,31 +63,39 @@ PLACEHOLDER_SUMMARIES = [
   'No articles available for summarization.'
 ].freeze
 
-# Shared guardrails for all summaries. Keep them terse and explicit so the
-# model stays grounded in the supplied feed text and returns plain prose only.
-SUMMARY_PROMPT_GUARDRAILS = 'Use only the supplied text. Do not invent details, mention the feed/source, or add bullets, headings, HTML, markdown, or preamble. Return one plain paragraph.'.freeze
+# Shared newsroom contract for all summaries. These rules are intentionally
+# explicit because the local 1.2B model needs stronger grounding than a large
+# hosted model.
+SUMMARY_PROMPT_GUARDRAILS = <<~PROMPT.strip.freeze
+  Use only facts stated in the supplied items. Do not invent, infer, or connect separate items.
+  Preserve names, places, dates, numbers, and operational status verbs exactly as written.
+  Treat jokes, asides, rhetorical questions, and parenthetical comments as non-factual and omit them.
+  Do not mention the feed, source, article, supplied text, or that you are summarizing.
+  Never begin with "The text", "This article", "These stories", "The following", or "In summary".
+  Do not end with a general sentence about what the stories reflect, highlight, or demonstrate.
+  Return exactly one plain-text paragraph with no label, markdown, HTML, headings, bullets, links, or line breaks.
+PROMPT
 
 NEWS_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
-  You are writing a concise local-news digest for a homepage.
-  Summarize the most newsworthy items in under 120 words.
-  Lead with the most important item, then merge related developments.
-  Keep names, places, dates, and numbers only when they are present in the source text.
-  If the material is thin or repetitive, stay conservative rather than speculating.
+  Write a local-news digest of at most 120 words.
+  Open with the most recent or consequential development, then briefly include only closely related or important items.
+  Use direct declarative sentences and active voice. If the items are thin or repetitive, write less rather than padding.
   #{SUMMARY_PROMPT_GUARDRAILS}
 PROMPT
 
 OVERALL_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
-  You are editing the site's overall front-page digest across multiple local sources.
-  In under 160 words, synthesize the most important stories and themes across the provided text.
-  Prefer concrete facts, impacts, and comparisons.
-  If the sources are sparse, say only what they clearly support.
+  Write a front-page local-news digest of at most 150 words.
+  Lead with the most consequential development, then summarize other important developments in descending importance.
+  State concrete facts and clearly stated local impacts. Do not merge unrelated items into a single claim or invent a theme.
+  Use direct declarative sentences and active voice. If coverage is sparse, write less rather than padding.
   #{SUMMARY_PROMPT_GUARDRAILS}
 PROMPT
 
 BREAKING_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
-  You are editing a breaking-news strip for a homepage.
-  In under 80 words, lead with the newest or most urgent development.
-  State the immediate impact or current status when present, and keep the wording terse and factual.
+  Write a breaking-news update of at most 70 words.
+  Lead with the newest or most urgent event and its current status.
+  Keep status verbs exactly as written; for example, never change "releasing" to "deploying".
+  Include a time only when it appears in the supplied item. Use terse, direct declarative sentences.
   #{SUMMARY_PROMPT_GUARDRAILS}
 PROMPT
 
@@ -101,6 +109,9 @@ FEED_NAME_MAX = 40
 # token-bounded content window, so several items still fit and the AI gets
 # breadth as well as depth.
 ITEM_DESC_MAX = 240
+SUMMARY_ITEMS_PER_FEED = 10
+OVERALL_ITEMS_PER_FEED = 5
+BREAKING_SUMMARY_ITEMS = 10
 
 # National Weather Service active-alerts API + the zone to watch. CAC057 is
 # Nevada County, CA (covers Nevada City, Grass Valley and Truckee); override
@@ -521,14 +532,17 @@ end
 
 AI_SUMMARY_MODEL = 'lfm2.5-1.2b-instruct'
 
-# Apply the shared markdown-ish -> HTML formatting used by every summary:
-# escape raw HTML first, then allow a tiny safe subset: newlines, "## x",
-# markdown links, and **bold**.
+# Enforce the one-paragraph plain-text output contract before HTML rendering.
+# The prefix cleanup is a deterministic backstop for common small-model
+# preambles that the prompt explicitly forbids.
 def format_summary(text)
-  summary = html_escape(text.to_s).gsub("\n", "<br/>")
-  summary = summary.gsub(/(##\s*)(.*)/) { "<h2>#{html_escape($2)}</h2>" }
-  summary = convert_markdown_links_to_html(summary)
-  summary.gsub(/\*\*(.*?)\*\*/) { "<b>#{html_escape($1)}</b>" }
+  summary = text.to_s.gsub(/\s+/, ' ').strip
+  summary = summary.sub(/\A(?:summary:\s*)/i, '')
+  summary = summary.sub(/\Athe (?:supplied )?text (?:highlights|describes|reports|covers|notes|discusses)\s+/i, '')
+  summary = summary.gsub(/\[([^\]]{1,100})\]\([^)[:space:]]{1,200}\)/, '\1')
+  summary = summary.gsub(/\*\*([^*]{1,200})\*\*/, '\1')
+  summary = summary.sub(/\A\#{1,6}\s*/, '')
+  html_escape(summary.strip)
 end
 
 # Request a chat completion from the local llama.cpp server started by the
@@ -584,20 +598,21 @@ def summarize_news(feed)
   # an AI refusal ("I'm unable to access external websites") to visitors.
   return nil if feed_offline?(feed)
 
-  news_content = if feed.is_a?(Array)
-                   feed.flat_map { |f| extract_feed_content(f) }.join('. ')
-                 else
-                   extract_feed_content(feed).join('. ')
-                 end
+  lines = if feed.is_a?(Array)
+            feed.flat_map { |f| extract_feed_content(f) }
+          else
+            extract_feed_content(feed)
+          end
+  news_content = bounded_summary_content(deduplicate_summary_lines(lines), 4096)
   return "No articles available for summarization." if news_content.empty?
 
   generate_ai_summary(
     NEWS_SUMMARY_PROMPT,
-    news_content[0..4096],
+    news_content,
     context: "news",
-    temperature: 0.5,
-    max_tokens: 300,
-    top_p: 1
+    temperature: 0.2,
+    max_tokens: 180,
+    top_p: 0.9
   )
 end
 
@@ -607,34 +622,82 @@ def summarize_overall_news(feeds)
   # Skip offline placeholders so the bare feed URL never pollutes the
   # front-page summary (or makes the model refuse to summarize it).
   live_feeds = feeds.reject { |feed| feed_offline?(feed) }
-  all_content = live_feeds.flat_map { |feed| extract_feed_content(feed) }.join('. ')
+  all_lines = live_feeds.flat_map { |feed| extract_feed_content(feed, limit: OVERALL_ITEMS_PER_FEED) }
+  all_content = bounded_summary_content(deduplicate_summary_lines(all_lines), 6144)
   return "No articles available for summarization." if all_content.empty?
 
   generate_ai_summary(
     OVERALL_SUMMARY_PROMPT,
-    all_content[0..6144],
+    all_content,
     context: "overall news",
-    temperature: 0.4,
-    max_tokens: 400,
-    top_p: 0.95
+    temperature: 0.2,
+    max_tokens: 220,
+    top_p: 0.9
   )
 end
 
-# Extract content from a feed for summarization: one "Title - description" line
-# per item. Includes the article description (real substance) and deliberately
-# omits the raw URL, which only wastes tokens and tempts the model to "comment
-# on" or "access" the source. Handles offline feeds gracefully.
-def extract_feed_content(feed)
+# Normalize an item timestamp across RSS and Atom dialects.
+def item_published_at(item)
+  raw = if item.respond_to?(:date) && item.date
+          item.date
+        elsif item.respond_to?(:pubDate) && item.pubDate
+          item.pubDate
+        elsif item.respond_to?(:published) && item.published
+          item.published
+        elsif item.respond_to?(:updated) && item.updated
+          item.updated
+        end
+  raw = raw.content if raw.respond_to?(:content)
+  raw.is_a?(Time) ? raw : Time.parse(raw.to_s)
+rescue ArgumentError, TypeError
+  nil
+end
+
+# Extract recent items as "Title - description" lines. Dated entries are sorted
+# newest first; undated entries retain feed order. URLs are deliberately omitted.
+def extract_feed_content(feed, limit: SUMMARY_ITEMS_PER_FEED)
   return [] if feed.nil? || !feed.respond_to?(:items) || feed.items.nil?
 
-  feed.items.map do |item|
+  sorted_items = feed.items.each_with_index.sort_by do |item, index|
+    published_at = item_published_at(item)
+    published_at ? [0, -published_at.to_f, index] : [1, 0, index]
+  end.map(&:first)
+
+  sorted_items.filter_map do |item|
     title = item_title(item).to_s.strip
     desc = item_description(item)
-    desc.empty? ? title : "#{title} - #{desc}"
-  end.reject(&:empty?)
+    text = desc.empty? ? title : "#{title} - #{desc}"
+    text unless text.empty?
+  end.first(limit)
 rescue => e
   puts "Error extracting feed content: #{e.message}"
   []
+end
+
+# Join only complete item lines within a character budget so model input never
+# ends with a truncated headline or sentence fragment.
+def bounded_summary_content(lines, max_chars)
+  selected = []
+  length = 0
+  lines.each do |line|
+    added_length = line.length + (selected.empty? ? 0 : 2)
+    break if length + added_length > max_chars
+
+    selected << line
+    length += added_length
+  end
+  selected.join('. ')
+end
+
+def deduplicate_summary_lines(lines)
+  seen = {}
+  lines.each_with_object([]) do |line, unique|
+    title = line.split(' - ', 2).first.to_s.downcase.gsub(/\s+/, ' ').strip
+    next if title.empty? || seen[title]
+
+    seen[title] = true
+    unique << line
+  end
 end
 
 # Parse YubaNet "Happening Now" HTML into breaking-news entries. Pure (no I/O)
@@ -692,16 +755,17 @@ end
 def summarize_breaking_news(breaking_news)
   return "No breaking news available for summarization." if breaking_news.nil? || breaking_news.empty?
 
-  latest_entries = breaking_news.first(5)
-  content_text = latest_entries.map { |entry| "#{entry[:timestamp]}: #{entry[:content]}" }.join('. ')
+  latest_entries = breaking_news.first(BREAKING_SUMMARY_ITEMS)
+  lines = latest_entries.map { |entry| "#{entry[:timestamp]}: #{entry[:content]}" }
+  content_text = bounded_summary_content(lines, 3072)
   return "No breaking news content available for summarization." if content_text.empty?
 
   generate_ai_summary(
     BREAKING_SUMMARY_PROMPT,
-    content_text[0..3072],
+    content_text,
     context: "breaking news",
-    temperature: 0.3,
-    max_tokens: 200,
+    temperature: 0.1,
+    max_tokens: 110,
     top_p: 0.9
   )
 end

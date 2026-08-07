@@ -107,21 +107,23 @@ class RenderTest < Minitest::Test
   def test_summary_prompts_include_shared_guardrails_and_distinct_modes
     load File.expand_path('../render.rb', __dir__)
 
-    assert_includes NEWS_SUMMARY_PROMPT, 'Use only the supplied text.', 'feed summary prompt must stay grounded'
-    assert_includes OVERALL_SUMMARY_PROMPT, 'multiple local sources', 'overall prompt must synthesize across feeds'
-    assert_includes BREAKING_SUMMARY_PROMPT, 'newest or most urgent development', 'breaking prompt must prioritize freshness'
+    assert_includes NEWS_SUMMARY_PROMPT, 'Use only facts stated in the supplied items.', 'feed summary prompt must stay grounded'
+    assert_includes OVERALL_SUMMARY_PROMPT, 'Do not merge unrelated items', 'overall prompt must not invent themes'
+    assert_includes BREAKING_SUMMARY_PROMPT, 'never change "releasing" to "deploying"', 'breaking prompt must preserve status'
+    assert_includes SUMMARY_PROMPT_GUARDRAILS, 'Treat jokes, asides', 'shared rules must reject non-factual asides'
     refute_equal NEWS_SUMMARY_PROMPT, OVERALL_SUMMARY_PROMPT, 'feed and overall prompts should not collapse into one generic prompt'
     refute_equal NEWS_SUMMARY_PROMPT, BREAKING_SUMMARY_PROMPT, 'feed and breaking prompts should stay distinct'
   end
 
-  def test_format_summary_escapes_html_and_keeps_safe_markup
+  def test_format_summary_enforces_plain_paragraph_contract
     load File.expand_path('../render.rb', __dir__)
 
-    formatted = format_summary("<script>alert(1)</script>\n**bold** [link](https://example.com)")
+    formatted = format_summary("The text highlights <script>alert(1)</script>\n**bold** [link](https://example.com)")
     refute_includes formatted, '<script>', 'raw HTML must never pass through summary rendering'
     assert_includes formatted, '&lt;script&gt;alert(1)&lt;/script&gt;', 'raw HTML should be escaped visibly'
-    assert_includes formatted, '<b>bold</b>', 'safe bold markdown should still render'
-    assert_includes formatted, '<a href="https://example.com">link</a>', 'safe markdown links should still render'
+    assert_includes formatted, 'bold link', 'markdown should collapse to plain text'
+    refute_includes formatted, 'The text highlights', 'forbidden model preambles should be removed'
+    refute_match(/<br|<b>|<a /, formatted, 'summary output must remain one plain paragraph')
   end
 
   def test_summarize_news_skips_ai_without_local_endpoint
@@ -347,6 +349,28 @@ class RenderTest < Minitest::Test
     assert_equal ["Headline One - Body detail one."], lines
     refute_includes lines.join(' '), "src.test",
                     "Raw feed URLs must not be sent to the summarizer"
+  end
+
+  def test_extract_feed_content_sorts_by_date_and_caps_items
+    rss = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>c</title><link>http://x</link><description>d</description>
+      <item><title>Old</title><link>http://x/old</link><pubDate>Mon, 03 Aug 2026 12:00:00 GMT</pubDate></item>
+      <item><title>Newest</title><link>http://x/new</link><pubDate>Wed, 05 Aug 2026 12:00:00 GMT</pubDate></item>
+      <item><title>Middle</title><link>http://x/mid</link><pubDate>Tue, 04 Aug 2026 12:00:00 GMT</pubDate></item>
+      </channel></rss>
+    XML
+
+    assert_equal %w[Newest Middle], extract_feed_content(rss, limit: 2)
+  end
+
+  def test_bounded_summary_content_never_truncates_an_item
+    assert_equal 'First item', bounded_summary_content(['First item', 'Second item'], 15)
+  end
+
+  def test_deduplicate_summary_lines_uses_normalized_title
+    lines = ['Council Update - First version', ' council   update - Duplicate', 'Fire Update - Current']
+    assert_equal ['Council Update - First version', 'Fire Update - Current'], deduplicate_summary_lines(lines)
   end
 
   # --- NWS critical weather-alert band -------------------------------------
