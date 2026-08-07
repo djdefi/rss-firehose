@@ -138,6 +138,8 @@ jobs:
           --ctx-size 4096 \
           --parallel 2 \
           --threads 4 \
+          --reasoning off \
+          --reasoning-budget 0 \
           --no-webui \
           > "$RUNNER_TEMP/llama-server.log" 2>&1 &
         server_pid=$!
