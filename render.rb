@@ -63,6 +63,51 @@ PLACEHOLDER_SUMMARIES = [
   'No articles available for summarization.'
 ].freeze
 
+# Shared newsroom contract for all summaries. These rules are intentionally
+# explicit because small local models need stronger grounding than large hosted
+# models.
+SUMMARY_PROMPT_GUARDRAILS = <<~PROMPT.strip.freeze
+  Use only facts stated in the supplied items. Do not invent, infer, or connect separate items.
+  Each bracketed ITEM is independent unless its own text explicitly says otherwise.
+  Preserve names, places, dates, numbers, and operational status verbs exactly as written.
+  Treat jokes, asides, rhetorical questions, and parenthetical comments as non-factual and omit them.
+  Do not add severity, importance, or promotional adjectives unless they appear in the supplied item.
+  Do not describe what residents know, feel, expect, or face unless an item states it.
+  Do not mention the feed, source, article, supplied text, or that you are summarizing.
+  Never begin with "The text", "This article", "These stories", "The following", or "In summary".
+  Do not end with a general sentence about what the stories reflect, highlight, or demonstrate.
+  Avoid filler such as "recent updates", "meanwhile", "additionally", "highlights", "showcases", "shines", or "makes headlines".
+  Return exactly one plain-text paragraph with no label, markdown, HTML, headings, bullets, links, or line breaks.
+PROMPT
+
+NEWS_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
+  Write a local-news digest of at most 120 words.
+  The first sentence must report a specific event with a named subject and action, not announce that updates or stories exist.
+  Open with the most recent or consequential development, then briefly include only closely related or important items.
+  Use direct declarative sentences and active voice. If the items are thin or repetitive, write less rather than padding.
+  #{SUMMARY_PROMPT_GUARDRAILS}
+PROMPT
+
+OVERALL_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
+  Write a front-page local-news digest of at most 150 words.
+  The first sentence must report a specific event with a named subject and action, not announce a digest or list of updates.
+  Lead with the most consequential development, then summarize other important developments in descending importance.
+  State concrete facts and clearly stated local impacts. Do not merge unrelated items into a single claim or invent a theme.
+  Use direct declarative sentences and active voice. If coverage is sparse, write less rather than padding.
+  #{SUMMARY_PROMPT_GUARDRAILS}
+PROMPT
+
+BREAKING_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
+  Write a breaking-news update of at most 70 words.
+  The first sentence must summarize the item labeled LATEST UPDATE.
+  Use only the LATEST UPDATE; the update list below the summary covers earlier events.
+  Prefer its original nouns and verbs over paraphrasing.
+  Do not add severity words such as "major" unless the latest item uses them.
+  Keep status verbs exactly as written; for example, never change "releasing" to "deploying".
+  Include a time only when it appears in the supplied item. Use terse, direct declarative sentences.
+  #{SUMMARY_PROMPT_GUARDRAILS}
+PROMPT
+
 # Maximum length of a friendly feed name before it is truncated with an
 # ellipsis (see feed_display_name), so a long channel title can't dominate the
 # layout or reintroduce horizontal overflow on narrow screens.
@@ -73,6 +118,9 @@ FEED_NAME_MAX = 40
 # token-bounded content window, so several items still fit and the AI gets
 # breadth as well as depth.
 ITEM_DESC_MAX = 240
+SUMMARY_ITEMS_PER_FEED = 10
+OVERALL_ITEMS_PER_FEED = 5
+BREAKING_SUMMARY_ITEMS = 1
 
 # National Weather Service active-alerts API + the zone to watch. CAC057 is
 # Nevada County, CA (covers Nevada City, Grass Valley and Truckee); override
@@ -491,51 +539,132 @@ def convert_markdown_links_to_html(text)
   end
 end
 
-# Shared GitHub Models endpoint/model used for all AI summaries.
-AI_SUMMARY_ENDPOINT = "https://models.inference.ai.azure.com/chat/completions"
-AI_SUMMARY_MODEL = "gpt-4o-mini"
+AI_SUMMARY_MODEL = 'lfm2.5-2.6b'
 
-# Apply the shared markdown-ish -> HTML formatting used by every summary:
-# newlines to <br/>, "## x" to escaped <h2>, markdown links, and **bold**.
-def format_summary(text)
-  summary = text.gsub("\n", "<br/>")
-  summary = summary.gsub(/(##\s*)(.*)/) { "<h2>#{html_escape($2)}</h2>" }
-  summary = convert_markdown_links_to_html(summary)
-  summary.gsub(/\*\*(.*?)\*\*/) { "<b>#{html_escape($1)}</b>" }
+def configured_ai_model
+  ENV.fetch('AI_MODEL', AI_SUMMARY_MODEL)
 end
 
-# Request a GitHub Models chat completion for a summary. Centralizes the token
-# guard, HTTP call, response parsing/formatting and error handling shared by
-# every summarize_* method. `context` only affects log wording.
-def generate_ai_summary(system_prompt, user_content, context:, temperature:, max_tokens:, top_p:)
-  unless ENV['GITHUB_TOKEN']
-    puts "No GITHUB_TOKEN provided, skipping AI summarization"
-    return "AI summarization unavailable - no API token configured."
+# Enforce the one-paragraph plain-text output contract before HTML rendering.
+# The prefix cleanup is a deterministic backstop for common small-model
+# preambles that the prompt explicitly forbids.
+def split_summary_sentences(text)
+  chars = text.each_char.to_a
+  sentences = []
+  start_index = 0
+
+  chars.each_index do |index|
+    next unless ['.', '!', '?'].include?(chars[index])
+    next unless index == chars.length - 1 || chars[index + 1].strip.empty?
+
+    sentence = chars[start_index..index].join.strip
+    sentences << sentence unless sentence.empty?
+    start_index = index + 1
   end
 
+  tail = chars[start_index..]&.join.to_s.strip
+  sentences << tail unless tail.empty?
+  sentences
+end
+
+def truncate_summary_sentences(text, max_words)
+  return text if max_words.nil? || text.split.size <= max_words
+
+  sentences = split_summary_sentences(text)
+  selected = []
+  word_count = 0
+  sentences.each do |sentence|
+    sentence_words = sentence.split.size
+    break if word_count + sentence_words > max_words
+
+    selected << sentence
+    word_count += sentence_words
+  end
+  return selected.join(' ') unless selected.empty?
+
+  "#{text.split.first(max_words).join(' ').sub(/[,:;]\z/, '')}."
+end
+
+def strip_generic_summary_closer(summary)
+  sentences = split_summary_sentences(summary)
+  return summary if sentences.length < 2
+
+  closer = sentences.last.downcase
+  generic_starts = [
+    'these developments reflect',
+    'these developments highlight',
+    'these developments show',
+    'these developments demonstrate',
+    'these stories reflect',
+    'these stories highlight',
+    'these stories show',
+    'these stories demonstrate',
+    'these updates reflect',
+    'these updates highlight',
+    'these updates show',
+    'these updates demonstrate',
+    'those developments reflect',
+    'those stories reflect',
+    'those updates reflect'
+  ]
+  return summary unless generic_starts.any? { |prefix| closer.start_with?(prefix) }
+
+  sentences[0...-1].join(' ')
+end
+
+def format_summary(text, max_words: nil)
+  summary = text.to_s.split.join(' ')
+  summary = summary.sub(/\A(?:summary:\s*)/i, '')
+  summary = summary.sub(/\Athe (?:supplied )?text (?:highlights|describes|reports|covers|notes|discusses)\s+/i, '')
+  summary = summary.sub(/\Arecent updates (?:highlight|include)\s+/i, '')
+  summary = summary.sub(/\A[^.:]{1,80}\bis seeing several key updates:\s*/i, '')
+  summary = strip_generic_summary_closer(summary)
+  summary = summary.gsub(/\[([^\]]{1,100})\]\([^)[:space:]]{1,200}\)/, '\1')
+  summary = summary.gsub(/\*\*([^*]{1,200})\*\*/, '\1')
+  summary = summary.sub(/\A\#{1,6}\s*/, '')
+  summary = summary.sub(/\A([a-z])/) { Regexp.last_match(1).upcase }
+  summary = truncate_summary_sentences(summary, max_words)
+  html_escape(summary.strip)
+end
+
+# Request a chat completion from the local llama.cpp server started by the
+# Pages workflow. No API key or hosted inference service is required.
+def generate_ai_summary(system_prompt, user_content, context:, temperature:, max_tokens:, top_p:, max_words:)
+  endpoint = ENV['AI_API_ENDPOINT'].to_s.strip
+  if endpoint.empty?
+    puts "No local AI endpoint configured, skipping AI summarization"
+    return "AI summarization unavailable - local model not configured."
+  end
+
+  headers = { "Content-Type" => "application/json" }
+
   response = HTTParty.post(
-    AI_SUMMARY_ENDPOINT,
-    headers: {
-      "Content-Type" => "application/json",
-      "Authorization" => "Bearer #{ENV['GITHUB_TOKEN']}"
-    },
+    endpoint,
+    headers: headers,
+    timeout: (ENV['AI_REQUEST_TIMEOUT'] || '180').to_i,
     body: {
       "messages": [
         { "role": "system", "content": system_prompt },
         { "role": "user", "content": user_content }
       ],
-      "model": AI_SUMMARY_MODEL,
+      "model": configured_ai_model,
       "temperature": temperature,
       "max_tokens": max_tokens,
       "top_p": top_p
     }.to_json
   )
+  unless response.success?
+    puts "AI service returned HTTP #{response.code} while summarizing #{context}"
+    return "Summary generation failed - AI service returned HTTP #{response.code}."
+  end
+
   parsed_response = sanitize_response(response.body)
 
-  if parsed_response && parsed_response["choices"] && !parsed_response["choices"].empty?
-    format_summary(parsed_response["choices"].first["message"]["content"])
-  else
+  content = parsed_response&.dig("choices", 0, "message", "content")
+  if content.to_s.strip.empty?
     "Summary generation failed - no valid response from AI service."
+  else
+    format_summary(content, max_words: max_words)
   end
 rescue HTTParty::Error => e
   puts "HTTP error summarizing #{context}: #{e.message}"
@@ -552,20 +681,22 @@ def summarize_news(feed)
   # an AI refusal ("I'm unable to access external websites") to visitors.
   return nil if feed_offline?(feed)
 
-  news_content = if feed.is_a?(Array)
-                   feed.flat_map { |f| extract_feed_content(f) }.join('. ')
-                 else
-                   extract_feed_content(feed).join('. ')
-                 end
+  lines = if feed.is_a?(Array)
+            feed.flat_map { |f| extract_feed_content(f) }
+          else
+            extract_feed_content(feed)
+          end
+  news_content = labeled_summary_content(deduplicate_summary_lines(lines), 4096)
   return "No articles available for summarization." if news_content.empty?
 
   generate_ai_summary(
-    "You are a news editor writing a front-page digest. Summarize the key stories below in under 150 words of clear, factual journalistic prose. Lead with the most important developments and include specific names, places, dates, and figures when present. Do not mention the feed or that you are summarizing. Output only the summary text: no headings, labels, lists, or preamble.",
-    news_content[0..4096],
+    NEWS_SUMMARY_PROMPT,
+    news_content,
     context: "news",
-    temperature: 0.5,
+    temperature: 0.2,
     max_tokens: 300,
-    top_p: 1
+    top_p: 0.9,
+    max_words: 120
   )
 end
 
@@ -575,34 +706,96 @@ def summarize_overall_news(feeds)
   # Skip offline placeholders so the bare feed URL never pollutes the
   # front-page summary (or makes the model refuse to summarize it).
   live_feeds = feeds.reject { |feed| feed_offline?(feed) }
-  all_content = live_feeds.flat_map { |feed| extract_feed_content(feed) }.join('. ')
+  all_lines = live_feeds.flat_map { |feed| extract_feed_content(feed, limit: OVERALL_ITEMS_PER_FEED) }
+  all_content = labeled_summary_content(deduplicate_summary_lines(all_lines), 6144)
   return "No articles available for summarization." if all_content.empty?
 
   generate_ai_summary(
-    "You are the editor of a major newspaper writing the front-page summary across all of today's sources. In under 200 words, synthesize the most important stories, common themes, and significant trends. Explain what happened, who is affected, and why it matters, emphasizing facts and implications over a list of events. Do not mention the feeds or sources themselves. Output only the summary text: no headings, labels, or preamble.",
-    all_content[0..6144],
+    OVERALL_SUMMARY_PROMPT,
+    all_content,
     context: "overall news",
-    temperature: 0.4,
-    max_tokens: 400,
-    top_p: 0.95
+    temperature: 0.2,
+    max_tokens: 360,
+    top_p: 0.9,
+    max_words: 150
   )
 end
 
-# Extract content from a feed for summarization: one "Title - description" line
-# per item. Includes the article description (real substance) and deliberately
-# omits the raw URL, which only wastes tokens and tempts the model to "comment
-# on" or "access" the source. Handles offline feeds gracefully.
-def extract_feed_content(feed)
+# Normalize an item timestamp across RSS and Atom dialects.
+def item_published_at(item)
+  raw = if item.respond_to?(:date) && item.date
+          item.date
+        elsif item.respond_to?(:pubDate) && item.pubDate
+          item.pubDate
+        elsif item.respond_to?(:published) && item.published
+          item.published
+        elsif item.respond_to?(:updated) && item.updated
+          item.updated
+        end
+  raw = raw.content if raw.respond_to?(:content)
+  raw.is_a?(Time) ? raw : Time.parse(raw.to_s)
+rescue ArgumentError, TypeError
+  nil
+end
+
+# Extract recent items as "Title - description" lines. Dated entries are sorted
+# newest first; undated entries retain feed order. URLs are deliberately omitted.
+def extract_feed_content(feed, limit: SUMMARY_ITEMS_PER_FEED)
   return [] if feed.nil? || !feed.respond_to?(:items) || feed.items.nil?
 
-  feed.items.map do |item|
+  sorted_items = feed.items.each_with_index.sort_by do |item, index|
+    published_at = item_published_at(item)
+    published_at ? [0, -published_at.to_f, index] : [1, 0, index]
+  end.map(&:first)
+
+  sorted_items.filter_map do |item|
     title = item_title(item).to_s.strip
     desc = item_description(item)
-    desc.empty? ? title : "#{title} - #{desc}"
-  end.reject(&:empty?)
+    text = desc.empty? ? title : "#{title} - #{desc}"
+    text unless text.empty?
+  end.first(limit)
 rescue => e
   puts "Error extracting feed content: #{e.message}"
   []
+end
+
+# Join only complete item lines within a character budget so model input never
+# ends with a truncated headline or sentence fragment.
+def bounded_summary_content(lines, max_chars)
+  selected = []
+  length = 0
+  lines.each do |line|
+    added_length = line.length + (selected.empty? ? 0 : 2)
+    break if length + added_length > max_chars
+
+    selected << line
+    length += added_length
+  end
+  selected.join('. ')
+end
+
+def labeled_summary_content(lines, max_chars)
+  labeled_lines = lines.each_with_index.map { |line, index| "[ITEM #{index + 1}] #{line}" }
+  bounded_summary_content(labeled_lines, max_chars)
+end
+
+def deduplicate_summary_lines(lines)
+  seen = {}
+  lines.each_with_object([]) do |line, unique|
+    title = line.split(' - ', 2).first.to_s.downcase.gsub(/\s+/, ' ').strip
+    next if title.empty? || seen[title]
+
+    seen[title] = true
+    unique << line
+  end
+end
+
+def breaking_summary_content(breaking_news)
+  entries = breaking_news.first(BREAKING_SUMMARY_ITEMS)
+  lines = entries.map do |entry|
+    "LATEST UPDATE — #{entry[:timestamp]}: #{entry[:content]}"
+  end
+  bounded_summary_content(lines, 3072)
 end
 
 # Parse YubaNet "Happening Now" HTML into breaking-news entries. Pure (no I/O)
@@ -656,22 +849,12 @@ rescue => e
   []
 end
 
-# Summarize breaking news content using AI
+# Breaking updates remain verbatim. The local 1.2B model repeatedly changed
+# operational status and merged unrelated incidents, which is unacceptable on
+# the site's most time-sensitive surface.
 def summarize_breaking_news(breaking_news)
   return "No breaking news available for summarization." if breaking_news.nil? || breaking_news.empty?
-
-  latest_entries = breaking_news.first(5)
-  content_text = latest_entries.map { |entry| "#{entry[:timestamp]}: #{entry[:content]}" }.join('. ')
-  return "No breaking news content available for summarization." if content_text.empty?
-
-  generate_ai_summary(
-    "You are a breaking-news editor. In under 100 words, summarize the most critical, time-sensitive developments below. Highlight what readers need to know right now, including immediate impacts and any emerging pattern. Use urgent but clear language. Output only the summary text: no headings, labels, or preamble.",
-    content_text[0..3072],
-    context: "breaking news",
-    temperature: 0.3,
-    max_tokens: 200,
-    top_p: 0.9
-  )
+  nil
 end
 
 # Turn an NWS active-alerts API JSON body into a compact, escaped-later list of
@@ -748,6 +931,7 @@ def cache_summaries(overall_summary, feed_summaries, breaking_news_summary, regi
     File.open(CACHE_FILE, 'w') do |f|
       f.write({
         timestamp: Time.now.utc.iso8601,
+        model: configured_ai_model,
         summary: overall_summary,
         feed_summaries: feed_summaries || {},
         breaking_news_summary: breaking_news_summary,
@@ -785,6 +969,10 @@ def load_cached_summaries
   begin
     data = JSON.parse(File.read(CACHE_FILE))
     timestamp = Time.parse(data['timestamp'])
+    if !ENV['AI_API_ENDPOINT'].to_s.strip.empty? && data['model'] != configured_ai_model
+      puts "Cached summaries use #{data['model'] || 'an unknown model'}, regenerating with #{configured_ai_model}"
+      return nil
+    end
 
     # Check if cache is still valid (6 hours)
     if Time.now.utc - timestamp < 6 * 60 * 60
@@ -818,7 +1006,7 @@ puts "Title: #{title}"
 puts "Description: #{description}"
 puts "RSS URLs: #{rss_urls.join(', ')}" if rss_urls.any?
 puts "Backup URLs: #{rss_backup_urls.join(', ')}" if rss_backup_urls.any?
-puts "GitHub Token: #{ENV['GITHUB_TOKEN'] ? 'configured' : 'not configured (AI summaries disabled)'}"
+puts "Local AI: #{ENV['AI_API_ENDPOINT'].to_s.strip.empty? ? 'not configured (summaries disabled)' : configured_ai_model}"
 puts "Analytics UA: #{ENV['ANALYTICS_UA'] ? 'configured' : 'not configured'}"
 puts ""
 
@@ -841,7 +1029,7 @@ if cached
 else
   puts "Generating summaries for #{feeds.size} feeds..."
 
-  # Every summary is an independent GitHub Models request, so pipeline them all
+  # Every summary is an independent local inference request, so pipeline them
   # (per-feed + overall + breaking + regional overview) across the bounded pool
   # instead of making N+ serial calls. On a 3-feed run this collapses several
   # HTTP round-trips from sequential to roughly one call's wall-clock.

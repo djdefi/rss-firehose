@@ -88,7 +88,7 @@ After making changes, ALWAYS perform these validation steps:
 - **Basic rendering**: Verify HTML generation with default feeds
 - **Error handling**: Test with invalid/offline RSS URLs (should show "Feed offline" placeholders)
 - **Backup feeds**: Test fallback when primary feeds are empty/invalid
-- **AI summaries**: Test with/without GITHUB_TOKEN (graceful degradation)
+- **AI summaries**: Test with/without a local llama.cpp endpoint (graceful degradation)
 - **Environment customization**: Test with custom RSS_TITLE, RSS_DESCRIPTION, RSS_URLS
 
 ## Repository Structure
@@ -123,8 +123,9 @@ export RSS_TITLE="My News"
 export RSS_DESCRIPTION="My really awesome news aggregation page"
 export ANALYTICS_UA="UA-XXXXX-Y"
 
-# Optional AI summaries (requires GitHub token)
-export GITHUB_TOKEN="your_github_token_for_ai_summaries"
+# Optional local AI summaries
+export AI_API_ENDPOINT="http://127.0.0.1:8080/v1/chat/completions"
+export AI_MODEL="lfm2.5-2.6b"
 ```
 
 ### CI/CD Pipeline (.github/workflows/)
@@ -158,7 +159,7 @@ export GITHUB_TOKEN="your_github_token_for_ai_summaries"
 
 ### Performance Considerations
 - Render script fetches RSS feeds in real-time (~3 seconds total)
-- AI summaries cached for 6 hours (if GITHUB_TOKEN provided)
+- AI summaries cached for 6 hours (when the local model endpoint is available)
 - Docker builds include Ruby gem installation (~2+ minutes)
 
 ## Known Issues and Workarounds
@@ -174,7 +175,7 @@ export GITHUB_TOKEN="your_github_token_for_ai_summaries"
 - Application gracefully handles network failures with placeholder content
 
 ### AI Summary Limitations
-- Requires GitHub personal access token
+- Requires a local llama.cpp server loaded with LFM2.5-2.6B
 - Falls back to "AI summarization unavailable" without token
 - Summaries cached for 6 hours to minimize API usage
 
@@ -182,7 +183,7 @@ export GITHUB_TOKEN="your_github_token_for_ai_summaries"
 These error messages are expected and handled gracefully:
 ```
 General error with feed 'https://example.com/feed': Failed to open TCP connection
-No GITHUB_TOKEN provided, skipping AI summarization
+No local AI endpoint configured, skipping AI summarization
 WARNING: fetching https://dl-cdn.alpinelinux.org/alpine: Permission denied (Docker build)
 ```
 

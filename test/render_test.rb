@@ -101,7 +101,80 @@ class RenderTest < Minitest::Test
     assert_includes Object.private_instance_methods, :summarize_overall_news, "summarize_overall_news function should exist"
     
     puts "✓ Both summarize_news and summarize_overall_news functions are available"
-    puts "Note: Full summary variation testing requires GITHUB_TOKEN for integration validation"
+    puts "Note: Full summary variation testing requires a running local llama.cpp server"
+  end
+
+  def test_summary_prompts_include_shared_guardrails_and_distinct_modes
+    load File.expand_path('../render.rb', __dir__)
+
+    assert_includes NEWS_SUMMARY_PROMPT, 'Use only facts stated in the supplied items.', 'feed summary prompt must stay grounded'
+    assert_includes OVERALL_SUMMARY_PROMPT, 'Do not merge unrelated items', 'overall prompt must not invent themes'
+    assert_includes BREAKING_SUMMARY_PROMPT, 'never change "releasing" to "deploying"', 'breaking prompt must preserve status'
+    assert_includes BREAKING_SUMMARY_PROMPT, 'LATEST UPDATE', 'breaking prompt must enforce chronological priority'
+    assert_includes SUMMARY_PROMPT_GUARDRAILS, 'Treat jokes, asides', 'shared rules must reject non-factual asides'
+    refute_equal NEWS_SUMMARY_PROMPT, OVERALL_SUMMARY_PROMPT, 'feed and overall prompts should not collapse into one generic prompt'
+    refute_equal NEWS_SUMMARY_PROMPT, BREAKING_SUMMARY_PROMPT, 'feed and breaking prompts should stay distinct'
+  end
+
+  def test_format_summary_enforces_plain_paragraph_contract
+    load File.expand_path('../render.rb', __dir__)
+
+    formatted = format_summary("The text highlights <script>alert(1)</script>\n**bold** [link](https://example.com)")
+    refute_includes formatted, '<script>', 'raw HTML must never pass through summary rendering'
+    assert_includes formatted, '&lt;script&gt;alert(1)&lt;/script&gt;', 'raw HTML should be escaped visibly'
+    assert_includes formatted, 'bold link', 'markdown should collapse to plain text'
+    refute_includes formatted, 'The text highlights', 'forbidden model preambles should be removed'
+    refute_match(/<br|<b>|<a /, formatted, 'summary output must remain one plain paragraph')
+    assert_equal 'A specific update.', format_summary('a specific update. These developments reflect progress.'),
+                 'generic closing language should not survive output cleanup'
+  end
+
+  def test_summarize_news_skips_ai_without_local_endpoint
+    load File.expand_path('../render.rb', __dir__)
+    saved = ENV['AI_API_ENDPOINT']
+    ENV['AI_API_ENDPOINT'] = '   '
+    feed = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>c</title><link>http://x</link>
+      <description>d</description>
+      <item><title>Headline</title><link>http://x/1</link><description>Body.</description></item>
+      </channel></rss>
+    XML
+
+    assert_equal 'AI summarization unavailable - local model not configured.', summarize_news(feed)
+  ensure
+    saved ? ENV['AI_API_ENDPOINT'] = saved : ENV.delete('AI_API_ENDPOINT')
+  end
+
+  def test_generate_ai_summary_uses_local_llama_server_without_auth
+    load File.expand_path('../render.rb', __dir__)
+    saved_endpoint = ENV['AI_API_ENDPOINT']
+    ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'
+    request = nil
+    original_post = HTTParty.method(:post)
+    response = Struct.new(:body, :code) do
+      def success?
+        true
+      end
+    end.new({ choices: [{ message: { content: 'Generated summary.' } }] }.to_json, 200)
+
+    HTTParty.define_singleton_method(:post) do |url, options|
+      request = [url, options]
+      response
+    end
+    assert_equal 'Generated summary.',
+                 generate_ai_summary('System', 'Content', context: 'test', temperature: 0.2,
+                                     max_tokens: 50, top_p: 0.9, max_words: 20)
+
+    assert_equal 'http://127.0.0.1:8080/v1/chat/completions', request[0]
+    refute_includes request[1][:headers], 'Authorization'
+    assert_equal 180, request[1][:timeout]
+    body = JSON.parse(request[1][:body])
+    assert_equal AI_SUMMARY_MODEL, body['model']
+    assert_equal 'Content', body.dig('messages', 1, 'content')
+  ensure
+    HTTParty.singleton_class.send(:define_method, :post, original_post) if original_post
+    saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
   end
 
   def test_force_regenerate_skips_cache
@@ -280,6 +353,59 @@ class RenderTest < Minitest::Test
     assert_equal ["Headline One - Body detail one."], lines
     refute_includes lines.join(' '), "src.test",
                     "Raw feed URLs must not be sent to the summarizer"
+  end
+
+  def test_extract_feed_content_sorts_by_date_and_caps_items
+    rss = RSS::Parser.parse(<<~XML, false)
+      <?xml version="1.0"?>
+      <rss version="2.0"><channel><title>c</title><link>http://x</link><description>d</description>
+      <item><title>Old</title><link>http://x/old</link><pubDate>Mon, 03 Aug 2026 12:00:00 GMT</pubDate></item>
+      <item><title>Newest</title><link>http://x/new</link><pubDate>Wed, 05 Aug 2026 12:00:00 GMT</pubDate></item>
+      <item><title>Middle</title><link>http://x/mid</link><pubDate>Tue, 04 Aug 2026 12:00:00 GMT</pubDate></item>
+      </channel></rss>
+    XML
+
+    assert_equal %w[Newest Middle], extract_feed_content(rss, limit: 2)
+  end
+
+  def test_bounded_summary_content_never_truncates_an_item
+    assert_equal 'First item', bounded_summary_content(['First item', 'Second item'], 15)
+  end
+
+  def test_truncate_summary_sentences_respects_word_limit_without_fragments
+    text = 'First complete sentence has five words. Second sentence also has five words. Third sentence is extra.'
+    assert_equal 'First complete sentence has five words. Second sentence also has five words.',
+                 truncate_summary_sentences(text, 12)
+  end
+
+  def test_split_summary_sentences_handles_punctuation_and_tail
+    assert_equal ['First sentence.', 'Second!', 'Tail without punctuation'],
+                 split_summary_sentences("First sentence. Second! Tail without punctuation")
+  end
+
+  def test_labeled_summary_content_marks_items_as_independent
+    assert_equal '[ITEM 1] First. [ITEM 2] Second', labeled_summary_content(%w[First Second], 100)
+  end
+
+  def test_deduplicate_summary_lines_uses_normalized_title
+    lines = ['Council Update - First version', ' council   update - Duplicate', 'Fire Update - Current']
+    assert_equal ['Council Update - First version', 'Fire Update - Current'], deduplicate_summary_lines(lines)
+  end
+
+  def test_breaking_summary_content_labels_latest_and_excludes_older_noise
+    entries = 6.times.map do |index|
+      { timestamp: "time #{index}", content: "update #{index}" }
+    end
+
+    content = breaking_summary_content(entries)
+    assert_match(/\ALATEST UPDATE — time 0: update 0/, content)
+    refute_includes content, 'update 1'
+    refute_includes content, 'update 5'
+  end
+
+  def test_breaking_news_uses_verbatim_list_instead_of_ai_summary
+    entries = [{ timestamp: '5:22 PM', content: 'Air Attack 17 and tankers are launching.' }]
+    assert_nil summarize_breaking_news(entries)
   end
 
   # --- NWS critical weather-alert band -------------------------------------
@@ -685,6 +811,25 @@ class RenderTest < Minitest::Test
     assert_equal 'OVERALL', loaded['overall'], "existing keys must still round-trip"
   ensure
     FileUtils.rm_f('cache/ai_summary_cache.json')
+  end
+
+  def test_summary_cache_is_invalidated_when_model_changes
+    FileUtils.mkdir_p('cache')
+    File.write(CACHE_FILE, {
+      timestamp: Time.now.utc.iso8601,
+      model: 'lfm2.5-1.2b',
+      summary: 'OLD MODEL SUMMARY'
+    }.to_json)
+    saved_endpoint = ENV['AI_API_ENDPOINT']
+    saved_model = ENV['AI_MODEL']
+    ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'
+    ENV['AI_MODEL'] = 'lfm2.5-2.6b'
+
+    assert_nil load_cached_summaries
+  ensure
+    saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
+    saved_model ? ENV['AI_MODEL'] = saved_model : ENV.delete('AI_MODEL')
+    FileUtils.rm_f(CACHE_FILE)
   end
 
   def test_summarize_news_skips_offline_feed_returning_nil
