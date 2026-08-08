@@ -114,6 +114,10 @@ class RenderTest < Minitest::Test
     assert_includes SUMMARY_PROMPT_GUARDRAILS, 'Treat jokes, asides', 'shared rules must reject non-factual asides'
     assert_includes SUMMARY_PROMPT_GUARDRAILS, 'Never complete a cut-off phrase',
                     'shared rules must reject incomplete source text'
+    assert_includes GROUNDED_FACTS_PROMPT, 'Every sentence must describe only its matching ITEM',
+                    'fact extraction must isolate every source item'
+    assert_includes GROUNDED_FACTS_PROMPT, 'Return only a JSON object',
+                    'fact extraction must use a machine-checkable response'
     refute_equal NEWS_SUMMARY_PROMPT, OVERALL_SUMMARY_PROMPT, 'feed and overall prompts should not collapse into one generic prompt'
     refute_equal NEWS_SUMMARY_PROMPT, BREAKING_SUMMARY_PROMPT, 'feed and breaking prompts should stay distinct'
   end
@@ -180,6 +184,78 @@ class RenderTest < Minitest::Test
     body = JSON.parse(request[1][:body])
     assert_equal AI_SUMMARY_MODEL, body['model']
     assert_equal 'Content', body.dig('messages', 1, 'content')
+  ensure
+    HTTParty.singleton_class.send(:define_method, :post, original_post) if original_post
+    saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
+  end
+
+  def test_parse_grounded_facts_validates_item_ids_and_numbers
+    lines = [
+      'Election filing - Filing opened for 16 local contests.',
+      'Board meeting - Supervisors meet on August 11.'
+    ]
+    content = {
+      facts: [
+        { item: 1, sentence: 'Filing opened for 16 local contests.' },
+        { item: 2, sentence: 'Supervisors scheduled 16 meetings on August 11.' },
+        { item: 3, sentence: 'An unrelated fact appeared.' }
+      ]
+    }.to_json
+
+    assert_equal ['Filing opened for 16 local contests.'], parse_grounded_facts(content, lines)
+  end
+
+  def test_generate_grounded_facts_requests_json_object
+    saved_endpoint = ENV['AI_API_ENDPOINT']
+    ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'
+    request = nil
+    original_post = HTTParty.method(:post)
+    response = Struct.new(:body, :code) do
+      def success?
+        true
+      end
+
+      def test_generate_grounded_facts_retries_when_server_rejects_response_format
+        saved_endpoint = ENV['AI_API_ENDPOINT']
+        ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'
+        requests = []
+        original_post = HTTParty.method(:post)
+        response_class = Struct.new(:body, :code) do
+          def success?
+            code == 200
+          end
+        end
+        responses = [
+          response_class.new('unsupported response_format', 400),
+          response_class.new({ choices: [{ message: { content: '{"facts":[{"item":1,"sentence":"Council approved the plan."}]}' } }] }.to_json, 200)
+        ]
+
+        HTTParty.define_singleton_method(:post) do |url, options|
+          requests << [url, options]
+          responses.shift
+        end
+        result = generate_grounded_facts(['Council vote - Council approved the plan.'], context: 'test')
+
+        assert_equal ['Council approved the plan.'], result[:facts]
+        assert_equal 2, requests.length
+        assert JSON.parse(requests.first[1][:body]).key?('response_format')
+        refute JSON.parse(requests.last[1][:body]).key?('response_format')
+      ensure
+        HTTParty.singleton_class.send(:define_method, :post, original_post) if original_post
+        saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
+      end
+    end.new({ choices: [{ message: { content: '{"facts":[{"item":1,"sentence":"Council approved the plan."}]}' } }] }.to_json, 200)
+
+    HTTParty.define_singleton_method(:post) do |url, options|
+      request = [url, options]
+      response
+    end
+    result = generate_grounded_facts(['Council vote - Council approved the plan.'], context: 'test')
+
+    assert_equal ['Council approved the plan.'], result[:facts]
+    body = JSON.parse(request[1][:body])
+    assert_equal({ 'type' => 'json_object' }, body['response_format'])
+    assert_equal 0.0, body['temperature']
   ensure
     HTTParty.singleton_class.send(:define_method, :post, original_post) if original_post
     saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
@@ -377,6 +453,14 @@ class RenderTest < Minitest::Test
     assert_empty extract_feed_content(feed)
   end
 
+  def test_extract_feed_content_omits_composite_digest_titles_and_editor_notes
+    items = [
+      Struct.new(:title, :description).new('First; Second; More', nil),
+      Struct.new(:title, :description).new('Real headline', "Editor's Note: Headline corrected.")
+    ]
+    assert_empty extract_feed_content(Struct.new(:items).new(items))
+  end
+
   def test_extract_feed_content_sorts_by_date_and_caps_items
     rss = RSS::Parser.parse(<<~XML, false)
       <?xml version="1.0"?>
@@ -410,6 +494,20 @@ class RenderTest < Minitest::Test
                  labeled_summary_content(%w[First Second], 100)
     assert_equal '[ITEM 1] TITLE: Headline | DESCRIPTION: Concrete detail.',
                  labeled_summary_content(['Headline - Concrete detail.'], 100)
+  end
+
+  def test_interleave_grounded_facts_preserves_feed_diversity
+    facts = interleave_grounded_facts([%w[a1 a2], %w[b1 b2 b3]])
+    assert_equal %w[a1 b1 a2 b2 b3], facts
+  end
+
+  def test_assemble_fact_results_caps_each_feed_and_interleaves
+    results = {
+      first: { facts: ['A one.', 'A two.', 'A three.', 'A four.'], error: nil },
+      second: { facts: ['B one.', 'B two.'], error: nil }
+    }
+    assert_equal 'A one. B one. A two. B two. A three.',
+                 assemble_fact_results(results, %i[first second], max_words: 20)
   end
 
   def test_deduplicate_summary_lines_uses_normalized_title
@@ -854,6 +952,23 @@ class RenderTest < Minitest::Test
   ensure
     saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
     saved_model ? ENV['AI_MODEL'] = saved_model : ENV.delete('AI_MODEL')
+    FileUtils.rm_f(CACHE_FILE)
+  end
+
+  def test_summary_cache_is_invalidated_when_pipeline_changes
+    saved_endpoint = ENV['AI_API_ENDPOINT']
+    ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'
+    FileUtils.mkdir_p('cache')
+    File.write(CACHE_FILE, {
+      timestamp: Time.now.utc.iso8601,
+      model: configured_ai_model,
+      pipeline: 'legacy-freeform',
+      summary: 'Old summary'
+    }.to_json)
+
+    assert_nil load_cached_summaries
+  ensure
+    saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
     FileUtils.rm_f(CACHE_FILE)
   end
 
