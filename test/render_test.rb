@@ -132,6 +132,9 @@ class RenderTest < Minitest::Test
     assert_equal 'First complete sentence. Final complete sentence.',
                  format_summary('First complete sentence. Cut off on We…. Final complete sentence.'),
                  'sentences containing truncated text must be removed'
+    assert_equal 'One update. Another update.',
+                 format_summary('One update. Another update. One update.'),
+                 'repeated model sentences must be emitted only once'
   end
 
   def test_summarize_news_skips_ai_without_local_endpoint
