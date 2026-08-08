@@ -106,6 +106,8 @@ GROUNDED_FACTS_PROMPT = <<~PROMPT.strip.freeze
   Write at most one sentence of 35 words per usable item. Use the ITEM number exactly.
   Every sentence must describe only its matching ITEM. Never combine names, numbers, dates, places, or actions from different items.
   Prefer concrete facts from DESCRIPTION. Use TITLE only to clarify the same item.
+  Report the newest concrete action, decision, result, or operational status. For a live incident, include its latest stated size or status instead of merely naming its location.
+  Do not merely restate a headline or introductory phrase. Avoid vague constructions such as "highlights", "showcases", "lays out", or "a look at".
   Skip items that contain only a slogan, teaser, list of headlines, editorial note, or incomplete text.
   Preserve every name, place, date, number, numeric format, and operational status exactly as supplied.
   Do not add facts, context, transitions, labels, markdown, commentary, or keys other than "facts", "item", and "sentence".
@@ -567,7 +569,7 @@ def convert_markdown_links_to_html(text)
 end
 
 AI_SUMMARY_MODEL = 'lfm2.5-2.6b'
-SUMMARY_PIPELINE_VERSION = 'grounded-v1'
+SUMMARY_PIPELINE_VERSION = 'grounded-v2'
 
 def configured_ai_model
   ENV.fetch('AI_MODEL', AI_SUMMARY_MODEL)
@@ -755,6 +757,8 @@ def valid_grounded_fact?(sentence, source)
   return false unless sentence.match?(/[.!?]\z/)
   return false unless split_summary_sentences(sentence).length == 1
   return false if sentence.split.length > 35
+  return false if sentence.match?(/\b(?:a look at|highlights|lays out|located on|questionable origin story|showcases)\b/i)
+  return false if sentence.match?(/\b(?:you|your)\b/i)
 
   (summary_number_tokens(sentence) - summary_number_tokens(source)).empty?
 end
