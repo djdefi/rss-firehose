@@ -232,36 +232,6 @@ class RenderTest < Minitest::Test
       def success?
         true
       end
-
-      def test_generate_grounded_facts_retries_when_server_rejects_response_format
-        saved_endpoint = ENV['AI_API_ENDPOINT']
-        ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'
-        requests = []
-        original_post = HTTParty.method(:post)
-        response_class = Struct.new(:body, :code) do
-          def success?
-            code == 200
-          end
-        end
-        responses = [
-          response_class.new('unsupported response_format', 400),
-          response_class.new({ choices: [{ message: { content: '{"facts":[{"item":1,"sentence":"Council approved the plan."}]}' } }] }.to_json, 200)
-        ]
-
-        HTTParty.define_singleton_method(:post) do |url, options|
-          requests << [url, options]
-          responses.shift
-        end
-        result = generate_grounded_facts(['Council vote - Council approved the plan.'], context: 'test')
-
-        assert_equal ['Council approved the plan.'], result[:facts]
-        assert_equal 2, requests.length
-        assert JSON.parse(requests.first[1][:body]).key?('response_format')
-        refute JSON.parse(requests.last[1][:body]).key?('response_format')
-      ensure
-        HTTParty.singleton_class.send(:define_method, :post, original_post) if original_post
-        saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
-      end
     end.new({ choices: [{ message: { content: '{"facts":[{"item":1,"sentence":"Council approved the plan."}]}' } }] }.to_json, 200)
 
     HTTParty.define_singleton_method(:post) do |url, options|
@@ -274,6 +244,74 @@ class RenderTest < Minitest::Test
     body = JSON.parse(request[1][:body])
     assert_equal({ 'type' => 'json_object' }, body['response_format'])
     assert_equal 0.0, body['temperature']
+  ensure
+    HTTParty.singleton_class.send(:define_method, :post, original_post) if original_post
+    saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
+  end
+
+  def test_generate_grounded_facts_retries_when_server_rejects_response_format
+    saved_endpoint = ENV['AI_API_ENDPOINT']
+    ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'
+    requests = []
+    original_post = HTTParty.method(:post)
+    response_class = Struct.new(:body, :code) do
+      def success?
+        code == 200
+      end
+    end
+    responses = [
+      response_class.new('unsupported response_format', 400),
+      response_class.new({ choices: [{ message: { content: '{"facts":[{"item":1,"sentence":"Council approved the plan."}]}' } }] }.to_json, 200)
+    ]
+
+    HTTParty.define_singleton_method(:post) do |url, options|
+      requests << [url, options]
+      responses.shift
+    end
+    result = generate_grounded_facts(['Council vote - Council approved the plan.'], context: 'test')
+
+    assert_equal ['Council approved the plan.'], result[:facts]
+    assert_equal 2, requests.length
+    assert JSON.parse(requests.first[1][:body]).key?('response_format')
+    refute JSON.parse(requests.last[1][:body]).key?('response_format')
+  ensure
+    HTTParty.singleton_class.send(:define_method, :post, original_post) if original_post
+    saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
+  end
+
+  def test_generate_grounded_facts_isolates_each_item_request
+    saved_endpoint = ENV['AI_API_ENDPOINT']
+    ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'
+    requests = []
+    original_post = HTTParty.method(:post)
+    response_class = Struct.new(:body, :code) do
+      def success?
+        true
+      end
+    end
+    responses = [
+      response_class.new({ choices: [{ message: { content: '{"facts":[{"item":1,"sentence":"Water service continues."}]}' } }] }.to_json, 200),
+      response_class.new({ choices: [{ message: { content: '{"facts":[{"item":1,"sentence":"Candidate filing closes November 3."}]}' } }] }.to_json, 200)
+    ]
+
+    HTTParty.define_singleton_method(:post) do |url, options|
+      requests << [url, options]
+      responses.shift
+    end
+    lines = [
+      'Water stewardship - Water service continues.',
+      'Election filing - Candidate filing closes November 3.'
+    ]
+    result = generate_grounded_facts(lines, context: 'test')
+
+    assert_equal ['Water service continues.', 'Candidate filing closes November 3.'], result[:facts]
+    assert_equal 2, requests.length
+    first_content = JSON.parse(requests.first[1][:body]).dig('messages', 1, 'content')
+    last_content = JSON.parse(requests.last[1][:body]).dig('messages', 1, 'content')
+    assert_includes first_content, 'Water stewardship'
+    refute_includes first_content, 'Election filing'
+    assert_includes last_content, 'Election filing'
+    refute_includes last_content, 'Water stewardship'
   ensure
     HTTParty.singleton_class.send(:define_method, :post, original_post) if original_post
     saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')

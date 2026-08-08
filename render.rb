@@ -569,7 +569,7 @@ def convert_markdown_links_to_html(text)
 end
 
 AI_SUMMARY_MODEL = 'lfm2.5-2.6b'
-SUMMARY_PIPELINE_VERSION = 'grounded-v2'
+SUMMARY_PIPELINE_VERSION = 'grounded-v3'
 
 def configured_ai_model
   ENV.fetch('AI_MODEL', AI_SUMMARY_MODEL)
@@ -788,20 +788,26 @@ end
 def generate_grounded_facts(lines, context:)
   return { facts: [], error: "No articles available for summarization." } if lines.empty?
 
-  result = request_ai_completion(
-    GROUNDED_FACTS_PROMPT,
-    labeled_summary_content(lines, 4096),
-    context: context,
-    temperature: 0.0,
-    max_tokens: 480,
-    top_p: 0.8,
-    response_format: { "type" => "json_object" }
-  )
-  return { facts: [], error: result[:error] } if result[:error]
+  errors = []
+  facts = lines.each_with_index.filter_map do |line, index|
+    result = request_ai_completion(
+      GROUNDED_FACTS_PROMPT,
+      labeled_summary_content([line], 1024),
+      context: "#{context} item #{index + 1}",
+      temperature: 0.0,
+      max_tokens: 120,
+      top_p: 0.8,
+      response_format: { "type" => "json_object" }
+    )
+    if result[:error]
+      errors << result[:error]
+      next
+    end
 
-  facts = parse_grounded_facts(result[:content], lines)
+    parse_grounded_facts(result[:content], [line]).first
+  end
   if facts.empty?
-    { facts: [], error: "Summary generation failed - no grounded facts returned." }
+    { facts: [], error: errors.first || "Summary generation failed - no grounded facts returned." }
   else
     { facts: facts, error: nil }
   end
