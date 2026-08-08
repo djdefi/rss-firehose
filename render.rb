@@ -99,6 +99,18 @@ OVERALL_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
   #{SUMMARY_PROMPT_GUARDRAILS}
 PROMPT
 
+GROUNDED_FACTS_PROMPT = <<~PROMPT.strip.freeze
+  Extract concise news facts from independently labeled items.
+  Return only a JSON object with this shape:
+  {"facts":[{"item":1,"sentence":"One complete factual sentence."}]}
+  Write at most one sentence of 35 words per usable item. Use the ITEM number exactly.
+  Every sentence must describe only its matching ITEM. Never combine names, numbers, dates, places, or actions from different items.
+  Prefer concrete facts from DESCRIPTION. Use TITLE only to clarify the same item.
+  Skip items that contain only a slogan, teaser, list of headlines, editorial note, or incomplete text.
+  Preserve every name, place, date, number, numeric format, and operational status exactly as supplied.
+  Do not add facts, context, transitions, labels, markdown, commentary, or keys other than "facts", "item", and "sentence".
+PROMPT
+
 BREAKING_SUMMARY_PROMPT = <<~PROMPT.strip.freeze
   Write a breaking-news update of at most 70 words.
   The first sentence must summarize the item labeled LATEST UPDATE.
@@ -119,9 +131,9 @@ FEED_NAME_MAX = 40
 # item_description). Caps how much one verbose article can consume of the
 # token-bounded content window, so several items still fit and the AI gets
 # breadth as well as depth.
-ITEM_DESC_MAX = 240
-SUMMARY_ITEMS_PER_FEED = 10
-OVERALL_ITEMS_PER_FEED = 5
+ITEM_DESC_MAX = 400
+SUMMARY_ITEMS_PER_FEED = 6
+OVERALL_ITEMS_PER_FEED = 2
 BREAKING_SUMMARY_ITEMS = 1
 
 # National Weather Service active-alerts API + the zone to watch. CAC057 is
@@ -555,6 +567,7 @@ def convert_markdown_links_to_html(text)
 end
 
 AI_SUMMARY_MODEL = 'lfm2.5-2.6b'
+SUMMARY_PIPELINE_VERSION = 'grounded-v1'
 
 def configured_ai_model
   ENV.fetch('AI_MODEL', AI_SUMMARY_MODEL)
@@ -664,49 +677,155 @@ end
 
 # Request a chat completion from the local llama.cpp server started by the
 # Pages workflow. No API key or hosted inference service is required.
-def generate_ai_summary(system_prompt, user_content, context:, temperature:, max_tokens:, top_p:, max_words:)
+def request_ai_completion(system_prompt, user_content, context:, temperature:, max_tokens:, top_p:,
+                          response_format: nil)
   endpoint = ENV['AI_API_ENDPOINT'].to_s.strip
   if endpoint.empty?
     puts "No local AI endpoint configured, skipping AI summarization"
-    return "AI summarization unavailable - local model not configured."
+    return { error: "AI summarization unavailable - local model not configured." }
   end
 
   headers = { "Content-Type" => "application/json" }
+  request_body = {
+    "messages": [
+      { "role": "system", "content": system_prompt },
+      { "role": "user", "content": user_content }
+    ],
+    "model": configured_ai_model,
+    "temperature": temperature,
+    "max_tokens": max_tokens,
+    "top_p": top_p
+  }
+  request_body["response_format"] = response_format if response_format
 
   response = HTTParty.post(
     endpoint,
     headers: headers,
     timeout: (ENV['AI_REQUEST_TIMEOUT'] || '180').to_i,
-    body: {
-      "messages": [
-        { "role": "system", "content": system_prompt },
-        { "role": "user", "content": user_content }
-      ],
-      "model": configured_ai_model,
-      "temperature": temperature,
-      "max_tokens": max_tokens,
-      "top_p": top_p
-    }.to_json
+    body: request_body.to_json
   )
+  if !response.success? && response_format
+    puts "AI service rejected structured output for #{context}; retrying with prompt-enforced JSON"
+    request_body.delete("response_format")
+    response = HTTParty.post(
+      endpoint,
+      headers: headers,
+      timeout: (ENV['AI_REQUEST_TIMEOUT'] || '180').to_i,
+      body: request_body.to_json
+    )
+  end
   unless response.success?
     puts "AI service returned HTTP #{response.code} while summarizing #{context}"
-    return "Summary generation failed - AI service returned HTTP #{response.code}."
+    return { error: "Summary generation failed - AI service returned HTTP #{response.code}." }
   end
 
   parsed_response = sanitize_response(response.body)
-
   content = parsed_response&.dig("choices", 0, "message", "content")
-  if content.to_s.strip.empty?
-    "Summary generation failed - no valid response from AI service."
-  else
-    format_summary(content, max_words: max_words)
-  end
+  return { error: "Summary generation failed - no valid response from AI service." } if content.to_s.strip.empty?
+
+  { content: content.to_s }
 rescue HTTParty::Error => e
   puts "HTTP error summarizing #{context}: #{e.message}"
-  "Summary unavailable due to network error."
+  { error: "Summary unavailable due to network error." }
 rescue => e
   puts "General error summarizing #{context}: #{e.message}"
-  "Summary generation failed due to technical error."
+  { error: "Summary generation failed due to technical error." }
+end
+
+def generate_ai_summary(system_prompt, user_content, context:, temperature:, max_tokens:, top_p:, max_words:)
+  result = request_ai_completion(
+    system_prompt,
+    user_content,
+    context: context,
+    temperature: temperature,
+    max_tokens: max_tokens,
+    top_p: top_p
+  )
+  return result[:error] if result[:error]
+
+  format_summary(result[:content], max_words: max_words)
+end
+
+def summary_number_tokens(text)
+  text.to_s.scan(/\d+(?:[.,]\d+)*/).map { |number| number.delete(',') }
+end
+
+def valid_grounded_fact?(sentence, source)
+  return false if sentence.empty? || sentence.include?('…') || sentence.include?('...')
+  return false unless sentence.match?(/[.!?]\z/)
+  return false unless split_summary_sentences(sentence).length == 1
+  return false if sentence.split.length > 35
+
+  (summary_number_tokens(sentence) - summary_number_tokens(source)).empty?
+end
+
+def parse_grounded_facts(content, lines)
+  parsed = JSON.parse(content.to_s.strip)
+  facts = parsed['facts']
+  return [] unless facts.is_a?(Array)
+
+  seen = {}
+  facts.filter_map do |fact|
+    next unless fact.is_a?(Hash)
+
+    item_number = fact['item']
+    sentence = fact['sentence'].to_s.split.join(' ')
+    next unless item_number.is_a?(Integer) && item_number.between?(1, lines.length)
+    next if seen[item_number] || !valid_grounded_fact?(sentence, lines[item_number - 1])
+
+    seen[item_number] = true
+    sentence
+  end
+rescue JSON::ParserError => e
+  puts "Grounded fact JSON parsing error: #{e.message}"
+  []
+end
+
+def generate_grounded_facts(lines, context:)
+  return { facts: [], error: "No articles available for summarization." } if lines.empty?
+
+  result = request_ai_completion(
+    GROUNDED_FACTS_PROMPT,
+    labeled_summary_content(lines, 4096),
+    context: context,
+    temperature: 0.0,
+    max_tokens: 480,
+    top_p: 0.8,
+    response_format: { "type" => "json_object" }
+  )
+  return { facts: [], error: result[:error] } if result[:error]
+
+  facts = parse_grounded_facts(result[:content], lines)
+  if facts.empty?
+    { facts: [], error: "Summary generation failed - no grounded facts returned." }
+  else
+    { facts: facts, error: nil }
+  end
+end
+
+def assemble_grounded_summary(facts, max_words:)
+  return "No articles available for summarization." if facts.empty?
+
+  format_summary(facts.join(' '), max_words: max_words)
+end
+
+def interleave_grounded_facts(fact_sets)
+  max_size = fact_sets.map(&:length).max.to_i
+  (0...max_size).flat_map do |index|
+    fact_sets.filter_map { |facts| facts[index] }
+  end
+end
+
+def assemble_fact_results(results, keys, max_words:)
+  fact_sets = keys.filter_map do |key|
+    result = results[key]
+    result[:facts].first(3) unless result[:error]
+  end
+  facts = interleave_grounded_facts(fact_sets)
+  facts = split_summary_sentences(deduplicate_summary_sentences(facts.join(' ')))
+  return "Summary generation failed - no grounded facts returned." if facts.empty?
+
+  assemble_grounded_summary(facts, max_words: max_words)
 end
 
 def summarize_news(feed)
@@ -721,18 +840,10 @@ def summarize_news(feed)
           else
             extract_feed_content(feed)
           end
-  news_content = labeled_summary_content(deduplicate_summary_lines(lines), 4096)
-  return "No articles available for summarization." if news_content.empty?
+  result = generate_grounded_facts(deduplicate_summary_lines(lines), context: "news")
+  return result[:error] if result[:error]
 
-  generate_ai_summary(
-    NEWS_SUMMARY_PROMPT,
-    news_content,
-    context: "news",
-    temperature: 0.2,
-    max_tokens: 300,
-    top_p: 0.9,
-    max_words: 120
-  )
+  assemble_grounded_summary(result[:facts], max_words: 120)
 end
 
 def summarize_overall_news(feeds)
@@ -742,18 +853,10 @@ def summarize_overall_news(feeds)
   # front-page summary (or makes the model refuse to summarize it).
   live_feeds = feeds.reject { |feed| feed_offline?(feed) }
   all_lines = live_feeds.flat_map { |feed| extract_feed_content(feed, limit: OVERALL_ITEMS_PER_FEED) }
-  all_content = labeled_summary_content(deduplicate_summary_lines(all_lines), 6144)
-  return "No articles available for summarization." if all_content.empty?
+  result = generate_grounded_facts(deduplicate_summary_lines(all_lines), context: "overall news")
+  return result[:error] if result[:error]
 
-  generate_ai_summary(
-    OVERALL_SUMMARY_PROMPT,
-    all_content,
-    context: "overall news",
-    temperature: 0.2,
-    max_tokens: 360,
-    top_p: 0.9,
-    max_words: 150
-  )
+  assemble_grounded_summary(result[:facts], max_words: 150)
 end
 
 # Normalize an item timestamp across RSS and Atom dialects.
@@ -784,8 +887,10 @@ def extract_feed_content(feed, limit: SUMMARY_ITEMS_PER_FEED)
   end.map(&:first)
 
   sorted_items.filter_map do |item|
-    title = item_title(item).to_s.strip
+    title = CGI.unescapeHTML(item_title(item).to_s).split.join(' ')
     desc = item_description(item)
+    next if composite_digest_title?(title)
+    next if editorial_note_only?(desc)
     next if desc.empty? && promotional_title?(title)
 
     text = desc.empty? ? title : "#{title} - #{desc}"
@@ -824,6 +929,14 @@ end
 def promotional_title?(title)
   title.include?('!') &&
     title.match?(/\b(?:apply|attend|buy|donate|join|register|subscribe|support|vote)\b/i)
+end
+
+def composite_digest_title?(title)
+  title.scan(/;\s+\S/).length >= 2 || title.match?(/;\s*more\z/i)
+end
+
+def editorial_note_only?(description)
+  description.match?(/\Aeditor(?:'|’)?s note\b/i)
 end
 
 def deduplicate_summary_lines(lines)
@@ -979,6 +1092,7 @@ def cache_summaries(overall_summary, feed_summaries, breaking_news_summary, regi
       f.write({
         timestamp: Time.now.utc.iso8601,
         model: configured_ai_model,
+        pipeline: SUMMARY_PIPELINE_VERSION,
         summary: overall_summary,
         feed_summaries: feed_summaries || {},
         breaking_news_summary: breaking_news_summary,
@@ -1018,6 +1132,10 @@ def load_cached_summaries
     timestamp = Time.parse(data['timestamp'])
     if !ENV['AI_API_ENDPOINT'].to_s.strip.empty? && data['model'] != configured_ai_model
       puts "Cached summaries use #{data['model'] || 'an unknown model'}, regenerating with #{configured_ai_model}"
+      return nil
+    end
+    if !ENV['AI_API_ENDPOINT'].to_s.strip.empty? && data['pipeline'] != SUMMARY_PIPELINE_VERSION
+      puts "Cached summaries use an older pipeline, regenerating grounded facts"
       return nil
     end
 
@@ -1076,30 +1194,40 @@ if cached
 else
   puts "Generating summaries for #{feeds.size} feeds..."
 
-  # Every summary is an independent local inference request, so pipeline them
-  # (per-feed + overall + breaking + regional overview) across the bounded pool
-  # instead of making N+ serial calls. On a 3-feed run this collapses several
-  # HTTP round-trips from sequential to roughly one call's wall-clock.
-  jobs = feeds.keys.map { |url| [:feed, url] }
-  jobs << [:overall, nil]
+  # Extract independently keyed facts for each feed in parallel. Feed summaries
+  # and the front-page summary are assembled from the same validated sentences,
+  # so the overall digest cannot invent new cross-feed relationships.
+  jobs = feeds.keys.map { |url| [:feed_facts, url] }
+  jobs.concat(regional_feeds.keys.map { |url| [:regional_facts, url] })
   jobs << [:breaking, nil]
-  jobs << [:regional, nil] if regional_feeds.any?
 
   summaries = parallel_map(jobs) do |(kind, url)|
     case kind
-    when :feed     then summarize_news(feeds[url])
-    when :overall  then summarize_overall_news(feeds.values)
+    when :feed_facts
+      lines = deduplicate_summary_lines(extract_feed_content(feeds[url]))
+      generate_grounded_facts(lines, context: "feed #{url}")
+    when :regional_facts
+      lines = deduplicate_summary_lines(extract_feed_content(regional_feeds[url], limit: OVERALL_ITEMS_PER_FEED))
+      generate_grounded_facts(lines, context: "regional feed #{url}")
     when :breaking then summarize_breaking_news(breaking_news)
-    when :regional then summarize_overall_news(regional_feeds.values)
     end
   end
 
-  feed_summaries = feeds.keys.each_with_object({}) do |url, acc|
-    acc[url] = summaries[[:feed, url]]
+  feed_fact_results = feeds.keys.each_with_object({}) do |url, acc|
+    acc[url] = summaries[[:feed_facts, url]]
   end
-  overall_summary = summaries[[:overall, nil]]
+  feed_summaries = feeds.keys.each_with_object({}) do |url, acc|
+    result = feed_fact_results[url]
+    acc[url] = result[:error] || assemble_grounded_summary(result[:facts], max_words: 120)
+  end
+  overall_summary = assemble_fact_results(feed_fact_results, feeds.keys, max_words: 150)
   breaking_news_summary = summaries[[:breaking, nil]]
-  regional_summary = regional_feeds.any? ? summaries[[:regional, nil]] : nil
+  regional_fact_results = regional_feeds.keys.each_with_object({}) do |url, acc|
+    acc[url] = summaries[[:regional_facts, url]]
+  end
+  regional_summary = if regional_feeds.any?
+                       assemble_fact_results(regional_fact_results, regional_feeds.keys, max_words: 150)
+                     end
 
   # Only cache if we actually got a useful overall summary, so neither an error
   # placeholder nor a degraded "no content" render gets persisted for the TTL.
