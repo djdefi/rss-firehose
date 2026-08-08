@@ -634,6 +634,17 @@ def strip_incomplete_summary_sentences(summary)
   sentences.join(' ')
 end
 
+def deduplicate_summary_sentences(summary)
+  seen = {}
+  split_summary_sentences(summary).each_with_object([]) do |sentence, unique|
+    normalized = sentence.downcase.split.join(' ')
+    next if seen[normalized]
+
+    seen[normalized] = true
+    unique << sentence
+  end.join(' ')
+end
+
 def format_summary(text, max_words: nil)
   summary = text.to_s.split.join(' ')
   summary = summary.sub(/\A(?:summary:\s*)/i, '')
@@ -641,6 +652,7 @@ def format_summary(text, max_words: nil)
   summary = summary.sub(/\Arecent updates (?:highlight|include)\s+/i, '')
   summary = summary.sub(/\A[^.:]{1,80}\bis seeing several key updates:\s*/i, '')
   summary = strip_incomplete_summary_sentences(summary)
+  summary = deduplicate_summary_sentences(summary)
   summary = strip_generic_summary_closer(summary)
   summary = summary.gsub(/\[([^\]]{1,100})\]\([^)[:space:]]{1,200}\)/, '\1')
   summary = summary.gsub(/\*\*([^*]{1,200})\*\*/, '\1')
