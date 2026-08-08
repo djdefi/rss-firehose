@@ -112,6 +112,8 @@ class RenderTest < Minitest::Test
     assert_includes BREAKING_SUMMARY_PROMPT, 'never change "releasing" to "deploying"', 'breaking prompt must preserve status'
     assert_includes BREAKING_SUMMARY_PROMPT, 'LATEST UPDATE', 'breaking prompt must enforce chronological priority'
     assert_includes SUMMARY_PROMPT_GUARDRAILS, 'Treat jokes, asides', 'shared rules must reject non-factual asides'
+    assert_includes SUMMARY_PROMPT_GUARDRAILS, 'Never complete a cut-off phrase',
+                    'shared rules must reject incomplete source text'
     refute_equal NEWS_SUMMARY_PROMPT, OVERALL_SUMMARY_PROMPT, 'feed and overall prompts should not collapse into one generic prompt'
     refute_equal NEWS_SUMMARY_PROMPT, BREAKING_SUMMARY_PROMPT, 'feed and breaking prompts should stay distinct'
   end
@@ -127,6 +129,9 @@ class RenderTest < Minitest::Test
     refute_match(/<br|<b>|<a /, formatted, 'summary output must remain one plain paragraph')
     assert_equal 'A specific update.', format_summary('a specific update. These developments reflect progress.'),
                  'generic closing language should not survive output cleanup'
+    assert_equal 'First complete sentence. Final complete sentence.',
+                 format_summary('First complete sentence. Cut off on We…. Final complete sentence.'),
+                 'sentences containing truncated text must be removed'
   end
 
   def test_summarize_news_skips_ai_without_local_endpoint
@@ -307,7 +312,7 @@ class RenderTest < Minitest::Test
     assert_equal "Rain & wind hit the valley.", item_description(rss.items.first)
   end
 
-  def test_item_description_truncates_overlong_text
+  def test_item_description_omits_overlong_text_without_complete_sentence
     rss = RSS::Parser.parse(<<~XML, false)
       <?xml version="1.0"?>
       <rss version="2.0"><channel><title>c</title><link>http://x</link>
@@ -316,9 +321,17 @@ class RenderTest < Minitest::Test
       <description>#{'word ' * 100}</description></item>
       </channel></rss>
     XML
-    desc = item_description(rss.items.first)
-    assert desc.length <= ITEM_DESC_MAX + 1, "Overlong descriptions must be truncated near ITEM_DESC_MAX"
-    assert desc.end_with?("…"), "Truncated descriptions must end with an ellipsis"
+    assert_empty item_description(rss.items.first),
+                 "An overlong sentence must not be cut into a misleading fragment"
+  end
+
+  def test_item_description_keeps_complete_sentences_before_truncated_text
+    complete = 'Council approved the project.'
+    item = Struct.new(:description).new("#{complete} #{'word ' * 100}")
+    assert_equal complete, item_description(item)
+
+    truncated = Struct.new(:description).new("#{complete} Submissions close on We…")
+    assert_equal complete, item_description(truncated)
   end
 
   def test_item_description_reads_atom_summary
@@ -355,6 +368,12 @@ class RenderTest < Minitest::Test
                     "Raw feed URLs must not be sent to the summarizer"
   end
 
+  def test_extract_feed_content_omits_promotional_title_without_description
+    item = Struct.new(:title, :description).new('Philly Cheese Please! Support local booths', nil)
+    feed = Struct.new(:items).new([item])
+    assert_empty extract_feed_content(feed)
+  end
+
   def test_extract_feed_content_sorts_by_date_and_caps_items
     rss = RSS::Parser.parse(<<~XML, false)
       <?xml version="1.0"?>
@@ -384,7 +403,10 @@ class RenderTest < Minitest::Test
   end
 
   def test_labeled_summary_content_marks_items_as_independent
-    assert_equal '[ITEM 1] First. [ITEM 2] Second', labeled_summary_content(%w[First Second], 100)
+    assert_equal '[ITEM 1] TITLE: First. [ITEM 2] TITLE: Second',
+                 labeled_summary_content(%w[First Second], 100)
+    assert_equal '[ITEM 1] TITLE: Headline | DESCRIPTION: Concrete detail.',
+                 labeled_summary_content(['Headline - Concrete detail.'], 100)
   end
 
   def test_deduplicate_summary_lines_uses_normalized_title

@@ -71,6 +71,8 @@ SUMMARY_PROMPT_GUARDRAILS = <<~PROMPT.strip.freeze
   Each bracketed ITEM is independent unless its own text explicitly says otherwise.
   Preserve names, places, dates, numbers, and operational status verbs exactly as written.
   Treat jokes, asides, rhetorical questions, and parenthetical comments as non-factual and omit them.
+  Ignore slogans, teasers, calls to action, and promotional headline fragments unless the DESCRIPTION states concrete news facts.
+  Omit incomplete or truncated text, including text ending in an ellipsis. Never complete a cut-off phrase.
   Do not add severity, importance, or promotional adjectives unless they appear in the supplied item.
   Do not describe what residents know, feel, expect, or face unless an item states it.
   Do not mention the feed, source, article, supplied text, or that you are summarizing.
@@ -465,8 +467,9 @@ end
 
 # Normalize an item's summary/description across feed dialects (RSS2
 # `description`, Atom `summary`/`content`), strip HTML tags and decode entities,
-# collapse whitespace, and cap the length. Gives the summarizer real article
-# substance (not just the headline) while keeping the content window bounded.
+# collapse whitespace, and retain only complete text within the length cap.
+# Gives the summarizer real article substance (not just the headline) while
+# keeping the content window bounded.
 # The raw value is length-capped before the tag regex runs so a pathological
 # description can't cause quadratic backtracking, and full tags (e.g. a
 # WordPress featured image tag with a long srcset) are stripped whole rather
@@ -480,7 +483,19 @@ def item_description(item)
   text = (raw.respond_to?(:content) ? raw.content.to_s : raw.to_s)[0, 4000]
   text = CGI.unescapeHTML(text.gsub(/<[^>]*>/, ' ')).gsub(/\s+/, ' ')
   text = text.gsub(/ +([.,;:!?])/, '\1').strip
-  text.length > ITEM_DESC_MAX ? "#{text[0, ITEM_DESC_MAX].rstrip}…" : text
+  return text if text.length <= ITEM_DESC_MAX && !text.end_with?('…') && !text.end_with?('...')
+
+  complete_sentences = split_summary_sentences(text).select do |sentence|
+    sentence.match?(/[.!?]\z/) && !sentence.end_with?('…') && !sentence.end_with?('...')
+  end
+  selected = []
+  complete_sentences.each do |sentence|
+    candidate = (selected + [sentence]).join(' ')
+    break if candidate.length > ITEM_DESC_MAX
+
+    selected << sentence
+  end
+  selected.join(' ')
 end
 
 # Allow only safe URL schemes in generated hrefs so a malicious feed can't inject
@@ -612,12 +627,20 @@ def strip_generic_summary_closer(summary)
   sentences[0...-1].join(' ')
 end
 
+def strip_incomplete_summary_sentences(summary)
+  sentences = split_summary_sentences(summary)
+  sentences.reject! { |sentence| sentence.include?('…') || sentence.include?('...') }
+  sentences.pop while sentences.length > 1 && !sentences.last.match?(/[.!?]\z/)
+  sentences.join(' ')
+end
+
 def format_summary(text, max_words: nil)
   summary = text.to_s.split.join(' ')
   summary = summary.sub(/\A(?:summary:\s*)/i, '')
   summary = summary.sub(/\Athe (?:supplied )?text (?:highlights|describes|reports|covers|notes|discusses)\s+/i, '')
   summary = summary.sub(/\Arecent updates (?:highlight|include)\s+/i, '')
   summary = summary.sub(/\A[^.:]{1,80}\bis seeing several key updates:\s*/i, '')
+  summary = strip_incomplete_summary_sentences(summary)
   summary = strip_generic_summary_closer(summary)
   summary = summary.gsub(/\[([^\]]{1,100})\]\([^)[:space:]]{1,200}\)/, '\1')
   summary = summary.gsub(/\*\*([^*]{1,200})\*\*/, '\1')
@@ -751,6 +774,8 @@ def extract_feed_content(feed, limit: SUMMARY_ITEMS_PER_FEED)
   sorted_items.filter_map do |item|
     title = item_title(item).to_s.strip
     desc = item_description(item)
+    next if desc.empty? && promotional_title?(title)
+
     text = desc.empty? ? title : "#{title} - #{desc}"
     text unless text.empty?
   end.first(limit)
@@ -775,8 +800,18 @@ def bounded_summary_content(lines, max_chars)
 end
 
 def labeled_summary_content(lines, max_chars)
-  labeled_lines = lines.each_with_index.map { |line, index| "[ITEM #{index + 1}] #{line}" }
+  labeled_lines = lines.each_with_index.map do |line, index|
+    title, desc = line.split(' - ', 2)
+    fields = ["[ITEM #{index + 1}] TITLE: #{title}"]
+    fields << "DESCRIPTION: #{desc}" unless desc.to_s.empty?
+    fields.join(' | ')
+  end
   bounded_summary_content(labeled_lines, max_chars)
+end
+
+def promotional_title?(title)
+  title.include?('!') &&
+    title.match?(/\b(?:apply|attend|buy|donate|join|register|subscribe|support|vote)\b/i)
 end
 
 def deduplicate_summary_lines(lines)
