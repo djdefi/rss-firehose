@@ -205,6 +205,24 @@ class RenderTest < Minitest::Test
     assert_equal ['Filing opened for 16 local contests.'], parse_grounded_facts(content, lines)
   end
 
+  def test_parse_grounded_facts_rejects_low_signal_restatements
+    lines = [
+      'Flat, Dutch Flat - Air Attack estimates the fire at 20 acres and holding within retardant lines.',
+      'Trail feature - Hiking the trail delivers a sense of awe in Yosemite.',
+      'Micro-grants - Nevada County awarded $20,000 to six organizations.'
+    ]
+    content = {
+      facts: [
+        { item: 1, sentence: 'Flat, Dutch Flat is located on Lowell Hill Road.' },
+        { item: 2, sentence: 'The trail story showcases a sense of awe in Yosemite.' },
+        { item: 3, sentence: 'Nevada County awarded $20,000 to six organizations.' }
+      ]
+    }.to_json
+
+    assert_equal ['Nevada County awarded $20,000 to six organizations.'],
+                 parse_grounded_facts(content, lines)
+  end
+
   def test_generate_grounded_facts_requests_json_object
     saved_endpoint = ENV['AI_API_ENDPOINT']
     ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'
