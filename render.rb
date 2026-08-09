@@ -569,7 +569,7 @@ def convert_markdown_links_to_html(text)
 end
 
 AI_SUMMARY_MODEL = 'lfm2.5-2.6b'
-SUMMARY_PIPELINE_VERSION = 'grounded-v5'
+SUMMARY_PIPELINE_VERSION = 'grounded-v6'
 
 def configured_ai_model
   ENV.fetch('AI_MODEL', AI_SUMMARY_MODEL)
@@ -586,6 +586,7 @@ def split_summary_sentences(text)
   chars.each_index do |index|
     next unless ['.', '!', '?'].include?(chars[index])
     next unless index == chars.length - 1 || chars[index + 1].strip.empty?
+    next if chars[index] == '.' && summary_abbreviation_period?(chars, index)
 
     sentence = chars[start_index..index].join.strip
     sentences << sentence unless sentence.empty?
@@ -595,6 +596,15 @@ def split_summary_sentences(text)
   tail = chars[start_index..]&.join.to_s.strip
   sentences << tail unless tail.empty?
   sentences
+end
+
+def summary_abbreviation_period?(chars, index)
+  prefix = chars[0...index].join
+  token = prefix.split.last.to_s.downcase
+  abbreviations = %w[
+    a.m apr aug calif dec dr feb jan jul jun mar mr mrs ms nev no nov oct p.m sep sept st u.s
+  ]
+  abbreviations.include?(token) || (token.length == 1 && token.match?(/[a-z]/))
 end
 
 def truncate_summary_sentences(text, max_words)
@@ -756,11 +766,35 @@ def valid_grounded_fact?(sentence, source)
   return false if sentence.empty? || sentence.include?('…') || sentence.include?('...')
   return false unless sentence.match?(/[.!?]\z/)
   return false unless split_summary_sentences(sentence).length == 1
-  return false if sentence.split.length > 35
+  return false if sentence.split.length > 35 || sentence.split.length < 4
+  return false if sentence.start_with?('?')
   return false if sentence.match?(/\b(?:a look at|highlights|lays out|located on|questionable origin story|showcases)\b/i)
   return false if sentence.match?(/\b(?:you|your)\b/i)
+  return false if low_signal_grounded_fact?(sentence)
 
   (summary_number_tokens(sentence) - summary_number_tokens(source)).empty?
+end
+
+def low_signal_grounded_fact?(sentence)
+  normalized = sentence.downcase
+  starts = [
+    'advance registration is required',
+    'however, when it comes',
+    'that’s exactly how it should be',
+    "that's exactly how it should be",
+    'view the agenda',
+    "we're tracking how",
+    'we’re tracking how'
+  ]
+  phrases = [
+    'all the info on what lies ahead',
+    'highly questionable origin',
+    'won’t think twice',
+    "won't think twice"
+  ]
+  starts.any? { |prefix| normalized.start_with?(prefix) } ||
+    phrases.any? { |phrase| normalized.include?(phrase) } ||
+    normalized.match?(/\A\d+\s+to\b/)
 end
 
 def parse_grounded_facts(content, lines)
