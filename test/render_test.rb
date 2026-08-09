@@ -223,6 +223,23 @@ class RenderTest < Minitest::Test
                  parse_grounded_facts(content, lines)
   end
 
+  def test_parse_grounded_facts_rejects_fragments_and_source_boilerplate
+    lines = [
+      'Election filing - Filing is extended until Aug. 12 for local contests.',
+      'Event - Advance registration is required.',
+      'Market report - We are tracking current prices.'
+    ]
+    content = {
+      facts: [
+        { item: 1, sentence: '12 to file candidacy documents.' },
+        { item: 2, sentence: 'Advance registration is required.' },
+        { item: 3, sentence: "We're tracking how that's going." }
+      ]
+    }.to_json
+
+    assert_empty parse_grounded_facts(content, lines)
+  end
+
   def test_generate_grounded_facts_requests_json_object
     saved_endpoint = ENV['AI_API_ENDPOINT']
     ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'
@@ -290,7 +307,7 @@ class RenderTest < Minitest::Test
       end
     end
     responses = [
-      response_class.new({ choices: [{ message: { content: '{"facts":[{"item":1,"sentence":"Water service continues."}]}' } }] }.to_json, 200),
+      response_class.new({ choices: [{ message: { content: '{"facts":[{"item":1,"sentence":"Water service continues for residents."}]}' } }] }.to_json, 200),
       response_class.new({ choices: [{ message: { content: '{"facts":[{"item":1,"sentence":"Candidate filing closes November 3."}]}' } }] }.to_json, 200)
     ]
 
@@ -299,12 +316,12 @@ class RenderTest < Minitest::Test
       responses.shift
     end
     lines = [
-      'Water stewardship - Water service continues.',
+      'Water stewardship - Water service continues for residents.',
       'Election filing - Candidate filing closes November 3.'
     ]
     result = generate_grounded_facts(lines, context: 'test')
 
-    assert_equal ['Water service continues.', 'Candidate filing closes November 3.'], result[:facts]
+    assert_equal ['Water service continues for residents.', 'Candidate filing closes November 3.'], result[:facts]
     assert_equal 2, requests.length
     first_content = JSON.parse(requests.first[1][:body]).dig('messages', 1, 'content')
     last_content = JSON.parse(requests.last[1][:body]).dig('messages', 1, 'content')
@@ -582,6 +599,8 @@ class RenderTest < Minitest::Test
   def test_split_summary_sentences_handles_punctuation_and_tail
     assert_equal ['First sentence.', 'Second!', 'Tail without punctuation'],
                  split_summary_sentences("First sentence. Second! Tail without punctuation")
+    assert_equal ['Filing closes Aug. 12 for local contests.', 'Another update.'],
+                 split_summary_sentences('Filing closes Aug. 12 for local contests. Another update.')
   end
 
   def test_labeled_summary_content_marks_items_as_independent
