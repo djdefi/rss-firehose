@@ -325,6 +325,24 @@ class RenderTest < Minitest::Test
       def success?
         true
       end
+
+      def test_generate_grounded_facts_uses_source_fallback_after_local_server_error
+        saved_endpoint = ENV['AI_API_ENDPOINT']
+        ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'
+        original_post = HTTParty.method(:post)
+        HTTParty.define_singleton_method(:post) do |_url, _options|
+          raise HTTParty::Error, 'local server stopped'
+        end
+
+        line = 'Fire update - Crews held the fire at 20 acres.'
+        result = generate_grounded_facts([line], context: 'test')
+
+        assert_equal ['Crews held the fire at 20 acres.'], result[:facts]
+        assert_nil result[:error]
+      ensure
+        HTTParty.singleton_class.send(:define_method, :post, original_post) if original_post
+        saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
+      end
     end.new({ choices: [{ message: { content: '{"facts":[]}' } }] }.to_json, 200)
     HTTParty.define_singleton_method(:post) { |_url, _options| response }
 

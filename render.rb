@@ -569,7 +569,7 @@ def convert_markdown_links_to_html(text)
 end
 
 AI_SUMMARY_MODEL = 'lfm2.5-2.6b'
-SUMMARY_PIPELINE_VERSION = 'grounded-v4'
+SUMMARY_PIPELINE_VERSION = 'grounded-v5'
 
 def configured_ai_model
   ENV.fetch('AI_MODEL', AI_SUMMARY_MODEL)
@@ -810,6 +810,8 @@ def generate_grounded_facts(lines, context:)
     )
     if result[:error]
       errors << result[:error]
+      next fallback_grounded_fact(line) unless ENV['AI_API_ENDPOINT'].to_s.strip.empty?
+
       next
     end
 

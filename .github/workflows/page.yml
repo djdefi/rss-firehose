@@ -136,7 +136,7 @@ jobs:
           --host 127.0.0.1 \
           --port 8080 \
           --ctx-size 4096 \
-          --parallel 2 \
+          --parallel 1 \
           --threads 4 \
           --reasoning off \
           --reasoning-budget 0 \
@@ -155,6 +155,15 @@ jobs:
         fi
 
         bundle exec ruby render.rb
+        if ! kill -0 "$server_pid" 2>/dev/null; then
+          echo "llama-server stopped during rendering" >&2
+          cat "$RUNNER_TEMP/llama-server.log"
+          exit 1
+        fi
+        if grep -q "Summary generation failed" public/index.html; then
+          echo "Refusing to deploy summary error placeholders" >&2
+          exit 1
+        fi
       env:
         AI_API_ENDPOINT: http://127.0.0.1:8080/v1/chat/completions
         AI_MODEL: ${{ github.event.inputs.ai_model || 'lfm2.5-2.6b' }}
