@@ -240,6 +240,23 @@ class RenderTest < Minitest::Test
     assert_empty parse_grounded_facts(content, lines)
   end
 
+  def test_parse_grounded_facts_rejects_promotional_and_contextless_lines
+    lines = [
+      'Fire update - Releasing two tankers back to base.',
+      'Water feature - Tomorrow morning, thousands of people will turn on a faucet.',
+      'Astrology - That’s kind of a big deal.'
+    ]
+    content = {
+      facts: [
+        { item: 1, sentence: 'Releasing two tankers back to base.' },
+        { item: 2, sentence: 'Tomorrow morning, thousands of people will turn on a faucet.' },
+        { item: 3, sentence: 'That’s kind of a big deal.' }
+      ]
+    }.to_json
+
+    assert_empty parse_grounded_facts(content, lines)
+  end
+
   def test_generate_grounded_facts_requests_json_object
     saved_endpoint = ENV['AI_API_ENDPOINT']
     ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'

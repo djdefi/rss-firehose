@@ -569,7 +569,7 @@ def convert_markdown_links_to_html(text)
 end
 
 AI_SUMMARY_MODEL = 'lfm2.5-2.6b'
-SUMMARY_PIPELINE_VERSION = 'grounded-v6'
+SUMMARY_PIPELINE_VERSION = 'grounded-v7'
 
 def configured_ai_model
   ENV.fetch('AI_MODEL', AI_SUMMARY_MODEL)
@@ -778,17 +778,25 @@ end
 def low_signal_grounded_fact?(sentence)
   normalized = sentence.downcase
   starts = [
+    'all candidates and information are subject to',
     'advance registration is required',
     'however, when it comes',
+    'releasing two tankers',
     'that’s exactly how it should be',
+    'that’s kind of a big deal',
     "that's exactly how it should be",
+    "that's kind of a big deal",
+    'tomorrow morning, thousands of people',
     'view the agenda',
     "we're tracking how",
     'we’re tracking how'
   ]
   phrases = [
     'all the info on what lies ahead',
+    'are excited to stage',
     'highly questionable origin',
+    'reveal new dimensions',
+    'surprising artistic background',
     'won’t think twice',
     "won't think twice"
   ]
