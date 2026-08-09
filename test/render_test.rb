@@ -317,6 +317,27 @@ class RenderTest < Minitest::Test
     saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
   end
 
+  def test_generate_grounded_facts_uses_complete_source_sentence_fallback
+    saved_endpoint = ENV['AI_API_ENDPOINT']
+    ENV['AI_API_ENDPOINT'] = 'http://127.0.0.1:8080/v1/chat/completions'
+    original_post = HTTParty.method(:post)
+    response = Struct.new(:body, :code) do
+      def success?
+        true
+      end
+    end.new({ choices: [{ message: { content: '{"facts":[]}' } }] }.to_json, 200)
+    HTTParty.define_singleton_method(:post) { |_url, _options| response }
+
+    line = 'Fire update - The fire is near Dutch Flat. Crews held the fire at 20 acres.'
+    result = generate_grounded_facts([line], context: 'test')
+
+    assert_equal ['Crews held the fire at 20 acres.'], result[:facts]
+    assert_nil result[:error]
+  ensure
+    HTTParty.singleton_class.send(:define_method, :post, original_post) if original_post
+    saved_endpoint ? ENV['AI_API_ENDPOINT'] = saved_endpoint : ENV.delete('AI_API_ENDPOINT')
+  end
+
   def test_force_regenerate_skips_cache
     # Test that FORCE_REGENERATE environment variable skips cache
     load File.expand_path('../render.rb', __dir__)

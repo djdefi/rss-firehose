@@ -569,7 +569,7 @@ def convert_markdown_links_to_html(text)
 end
 
 AI_SUMMARY_MODEL = 'lfm2.5-2.6b'
-SUMMARY_PIPELINE_VERSION = 'grounded-v3'
+SUMMARY_PIPELINE_VERSION = 'grounded-v4'
 
 def configured_ai_model
   ENV.fetch('AI_MODEL', AI_SUMMARY_MODEL)
@@ -785,6 +785,15 @@ rescue JSON::ParserError => e
   []
 end
 
+def fallback_grounded_fact(line)
+  description = line.split(' - ', 2)[1].to_s
+  return if description.empty?
+
+  split_summary_sentences(description).reverse.find do |sentence|
+    valid_grounded_fact?(sentence, line)
+  end
+end
+
 def generate_grounded_facts(lines, context:)
   return { facts: [], error: "No articles available for summarization." } if lines.empty?
 
@@ -804,7 +813,7 @@ def generate_grounded_facts(lines, context:)
       next
     end
 
-    parse_grounded_facts(result[:content], [line]).first
+    parse_grounded_facts(result[:content], [line]).first || fallback_grounded_fact(line)
   end
   if facts.empty?
     { facts: [], error: errors.first || "Summary generation failed - no grounded facts returned." }
@@ -1228,7 +1237,7 @@ else
   end
   feed_summaries = feeds.keys.each_with_object({}) do |url, acc|
     result = feed_fact_results[url]
-    acc[url] = result[:error] || assemble_grounded_summary(result[:facts], max_words: 120)
+    acc[url] = assemble_grounded_summary(result[:facts], max_words: 120) unless result[:error]
   end
   overall_summary = assemble_fact_results(feed_fact_results, feeds.keys, max_words: 150)
   breaking_news_summary = summaries[[:breaking, nil]]
@@ -1236,7 +1245,8 @@ else
     acc[url] = summaries[[:regional_facts, url]]
   end
   regional_summary = if regional_feeds.any?
-                       assemble_fact_results(regional_fact_results, regional_feeds.keys, max_words: 150)
+                       summary = assemble_fact_results(regional_fact_results, regional_feeds.keys, max_words: 150)
+                       summary unless summary.include?('failed')
                      end
 
   # Only cache if we actually got a useful overall summary, so neither an error
